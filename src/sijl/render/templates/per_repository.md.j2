@@ -1,0 +1,22 @@
+{# Where the work happened: each repository with counted commits, the busiest first, and the
+   project its commits link to. Every commit is listed in the Appendix. #}
+## Per repository
+
+{% if repositories %}
+{{ shares_note }}
+
+| Repository | Commits | Share | Project |
+|---|---|---|---|
+{% for repo in repositories %}
+| {{ repo.name|cell }} | {{ repo.commits }} | {{ repo.share }} | {{ repo.projects|map("cell")|join(", ") or "—" }} |
+{% endfor %}
+
+{% endif %}
+{% if quiet %}
+No commits of yours in this period: {{ quiet|map("md")|join(", ") }}.
+
+{% endif %}
+{% if repositories %}
+Every counted commit is listed, by repository, in the *Appendix*.
+
+{% endif %}

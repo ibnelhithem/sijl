@@ -1,0 +1,67 @@
+[project]
+name = "sijl"
+version = "1.0.0"
+description = "Your work, on the record: summarise your own git work for a review period, straight from your local repositories."
+readme = "README.md"
+authors = [
+    { name = "ibnelhithem", email = "40494441+ibnelhithem@users.noreply.github.com" }
+]
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+keywords = ["git", "review", "report", "cli", "claude"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Version Control :: Git",
+]
+dependencies = [
+    "anthropic>=1.12.1,<2",
+    "jinja2>=3.1.6",
+    "linkify-it-py>=2.0",
+    "markdown-it-py>=4.2.0",
+    "rich>=15.0.0",
+    "typer>=0.27.2",
+]
+
+[project.urls]
+Homepage = "https://github.com/ibnelhithem/sijl"
+Documentation = "https://github.com/ibnelhithem/sijl/tree/main/docs"
+Changelog = "https://github.com/ibnelhithem/sijl/blob/main/CHANGELOG.md"
+Issues = "https://github.com/ibnelhithem/sijl/issues"
+
+[project.scripts]
+sijl = "sijl.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.12.17,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.16.10",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# pycodestyle, pyflakes, import order, modern syntax, likely bugs, simplifications, ruff's own rules
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.pytest.ini_options]
+# importlib mode: test modules never shadow each other by basename, and no sys.path tricks are needed
+# for test files; "." on the path makes the shared helpers importable as `tests.<module>`.
+addopts = ["--import-mode=importlib", "-ra"]
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = [
+    "allow_subprocess: the test may start a program other than git, ssh, sh or Python (tests/conftest.py)",
+]

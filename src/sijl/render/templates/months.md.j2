@@ -1,0 +1,11 @@
+{# Every month of the period; long runs of empty months before and after the work are folded. #}
+{% if months %}
+## Per month
+
+| Month | Commits | Active days |
+|---|---|---|
+{% for month in months %}
+| {{ month.label }} | {{ month.commits }} | {{ month.active_days }} |
+{% endfor %}
+
+{% endif %}

@@ -1,0 +1,19 @@
+{# Every counted commit, by repository: the evidence behind every number above. #}
+{% if repositories %}
+## Appendix: every counted commit
+
+{{ appendix_note }}
+
+{% for repo in repositories %}
+### {{ repo.name|md }} — {{ repo.commits|plural("commit") }}
+
+{{ repo.path|code }}{% for project in repo.projects %} · {{ project }}{% endfor +%}
+
+| Date | Commit | Subject |
+|---|---|---|
+{% for commit in repo.rows %}
+| {{ commit.date }} | {{ commit.commit }} | {{ commit.subject|cell }} |
+{% endfor %}
+
+{% endfor %}
+{% endif %}

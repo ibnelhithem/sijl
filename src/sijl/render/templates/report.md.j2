@@ -1,0 +1,14 @@
+{# The whole report: one built-in template per section, in this order. A template of your own
+   (sijl report --template FILE) can include any of them by name. #}
+{% include "header.md.j2" %}
+{% include "summary.md.j2" %}
+{% include "highlights.md.j2" %}
+{% include "per_repository.md.j2" %}
+{% include "tickets.md.j2" %}
+{% include "months.md.j2" %}
+{% include "kinds.md.j2" %}
+{% include "delivered.md.j2" %}
+{% include "not_pushed.md.j2" %}
+{% include "caveats.md.j2" %}
+{% include "appendix.md.j2" %}
+{% include "footer.md.j2" %}

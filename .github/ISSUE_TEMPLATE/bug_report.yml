@@ -1,0 +1,46 @@
+name: Bug report
+description: Sijl did something wrong, crashed, or printed something confusing.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Please do not paste a whole report, digest
+        or config file: they hold your work history, email addresses and colleagues' names.
+        A few lines, with names and paths replaced, are enough.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The command you ran, what you expected, and what Sijl did instead.
+      placeholder: |
+        sijl report --last 6m --root ~/code
+        Expected …, but …
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: The error or the relevant lines of output (anonymised), and the exit code (`echo $?`).
+      render: text
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: If you can, the smallest repository or steps that show the problem.
+  - type: input
+    id: version
+    attributes:
+      label: Sijl version
+      description: The output of `sijl --version`.
+      placeholder: sijl 1.0.0
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Operating system and git version
+      description: For example "macOS 15, git 2.47" or "Ubuntu 24.04, git 2.43" (`git --version`).
+    validations:
+      required: true

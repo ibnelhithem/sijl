@@ -1,0 +1,27 @@
+{# Review categories and conventional kinds; rows without commits are left out. #}
+{% if totals.commits %}
+## Kinds of work
+
+{{ kinds.note }}
+
+By review category:
+
+| Category | Commits | Share |
+|---|---|---|
+{% for row in kinds.categories if row.commits %}
+| {{ row.label }} | {{ row.commits }} | {{ row.share }} |
+{% endfor %}
+
+By conventional-commit kind — the `type:` that starts a subject:
+
+| Kind | Commits | Share |
+|---|---|---|
+{% for row in kinds.kinds if row.commits %}
+| {{ row.kind }} | {{ row.commits }} | {{ row.share }} |
+{% endfor %}
+
+{% if kinds.breaking %}
+{{ kinds.breaking }}
+
+{% endif %}
+{% endif %}

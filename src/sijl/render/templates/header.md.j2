@@ -1,0 +1,8 @@
+{# Title, period, identities, and when and by what the report was made. Two spaces before a line
+   break are Markdown's line break: written {{ "  " }} so that no editor strips them. #}
+# Work summary — {{ person|md }}
+
+**Period:** {{ period.described }} ({{ period.rule }}){{ "  " }}
+**Identities:** {{ emails|map("md")|join(", ") }}{{ "  " }}
+**Generated:** {{ generated }} by Sijl {{ version }}
+

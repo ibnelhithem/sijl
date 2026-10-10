@@ -1,0 +1,34 @@
+{# Tickets of your Jira projects, then prefixes that look like projects. A line that ends in a
+   block tag ends it with "+%}", which keeps the line's own newline. #}
+{% if tickets.shown %}
+## Tickets
+
+{{ tickets.sentence }}
+
+{% if tickets.rows %}
+| Ticket | Commits | {% if tickets.requests_column %}Requests | {% endif %}First | Last |
+|---|---|---|---|{% if tickets.requests_column %}---|{% endif +%}
+{% for ticket in tickets.rows %}
+| {{ ticket.key|cell }} | {{ ticket.commits }} | {% if tickets.requests_column %}{{ ticket.deliveries }} | {% endif %}{{ ticket.first }} | {{ ticket.last }} |
+{% endfor %}
+
+{% endif %}
+{% if tickets.suggestions %}
+{% if tickets.projects %}
+Other prefixes that look like Jira project keys — not in `jira.projects`, so not counted as tickets:
+
+{% endif %}
+| Prefix | Commits | In a ticket position | Example |
+|---|---|---|---|
+{% for suggestion in tickets.suggestions %}
+| {{ suggestion.prefix|cell }} | {{ suggestion.commits }} | {{ suggestion.in_position }} | {{ suggestion.example|cell }} |
+{% endfor %}
+
+{% if tickets.suggestions_more %}
+Plus {{ tickets.suggestions_more|plural("more prefix", "more prefixes") }}, ranked lower.
+
+{% endif %}
+{{ tickets.positions_note }}
+
+{% endif %}
+{% endif %}

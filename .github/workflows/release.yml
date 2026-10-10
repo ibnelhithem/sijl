@@ -1,0 +1,183 @@
+name: release
+
+# A v* tag publishes a GitHub release. The wheel and sdist are built once, tested and
+# smoke-tested on Linux and macOS, and only then published: exactly those files, with the
+# version's CHANGELOG.md section as the notes. The tag must equal pyproject's version.
+#
+# Without a tag this is a dry run that stops before publishing:
+#   - by hand: Actions -> release -> Run workflow, or `gh workflow run release.yml [-f tag=v1.2.3]`
+#   - on pull requests that change the release machinery (Linux only, to keep them quick).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Also check this tag (e.g. v1.0.0) against the version and CHANGELOG.md. Nothing is published."
+        required: false
+        default: ""
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - "scripts/release.py"
+      - "scripts/release-check.sh"
+      - "scripts/smoke-test.sh"
+      - "pyproject.toml"
+
+# No token permissions unless a job asks for them.
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  # A newer push to a pull request replaces its dry run; a release run is never cancelled.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    # Named explicitly, bash runs with -eo pipefail: a failure inside a pipe fails the step.
+    shell: bash
+
+jobs:
+  build:
+    name: Build and check the version
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    env:
+      # The tag being released; on a dry run, the tag typed in (empty: the tag checks are skipped).
+      TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+    steps:
+      # Actions are pinned to full commit SHAs: a tag can be moved, a SHA cannot.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # all branches and history: the tagged commit must be on main
+          persist-credentials: false # no later step uses git against GitHub
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+          enable-cache: false # a release never restores a cache another run wrote
+      - name: Read the version from pyproject.toml
+        id: version
+        run: |
+          version=$(uv run --no-project python scripts/release.py version)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: The tag is v + the version, and CHANGELOG.md has its section
+        if: env.TAG != ''
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          uv run --no-project python scripts/release.py check-tag "$TAG"
+          uv run --no-project python scripts/release.py notes "$VERSION" > release-notes.md
+      - name: The tagged commit is on main
+        if: github.event_name == 'push'
+        run: |
+          git merge-base --is-ancestor HEAD origin/main ||
+            { echo "::error::$TAG is not on main: tag a commit that main contains"; exit 1; }
+      - name: Build the wheel and sdist
+        # --no-sources: build as anyone else would, ignoring uv-only [tool.uv.sources] overrides.
+        run: uv build --no-sources
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: |
+            dist/sijl-${{ steps.version.outputs.version }}-py3-none-any.whl
+            dist/sijl-${{ steps.version.outputs.version }}.tar.gz
+          if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: env.TAG != ''
+        with:
+          name: release-notes
+          path: release-notes.md
+          if-no-files-found: error
+
+  test:
+    name: Test and smoke-test (${{ matrix.os }})
+    needs: build
+    strategy:
+      matrix:
+        # Pull requests get Linux only, to keep them quick; tags and manual runs get macOS too.
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+          enable-cache: false
+      - name: The test suite on this system
+        # ci.yml already runs it on Linux for every pull request.
+        if: github.event_name != 'pull_request'
+        run: |
+          uv sync --locked
+          command -v git
+          git --version
+          scripts/check.sh
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      - name: Smoke-test the files that will be published
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: scripts/smoke-test.sh dist "$VERSION"
+      - name: No forbidden word in the tree or the files that will be published
+        env:
+          PUBLICATION_GUARD_DIST: dist
+          # The private word list: never in the repository, only in this secret.
+          GUARD_LIST: ${{ secrets.PUBLICATION_GUARD_LIST }}
+        run: |
+          if [ -n "$GUARD_LIST" ]; then
+            list=$(mktemp)
+            printf '%s\n' "$GUARD_LIST" > "$list"
+            export PUBLICATION_GUARD_LIST="$list"
+          elif [ "$GITHUB_EVENT_NAME" = push ]; then
+            echo "::error::the PUBLICATION_GUARD_LIST secret is not set: a release is never published unguarded"
+            exit 1
+          else
+            echo "::warning::the PUBLICATION_GUARD_LIST secret is not available: the word list is not checked"
+          fi
+          uv run --locked pytest -q -rs tests/test_publication_guard.py
+
+  publish:
+    name: Publish the GitHub release
+    needs: [build, test]
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # the only write in this repository's workflows: creating the release
+    steps:
+      - name: The publication guard had its word list
+        env:
+          GUARD_LIST: ${{ secrets.PUBLICATION_GUARD_LIST }}
+        run: |
+          if [ -z "$GUARD_LIST" ]; then
+            echo "::error::the PUBLICATION_GUARD_LIST secret is not set: add it before tagging"
+            exit 1
+          fi
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-notes
+          path: notes
+      - name: Create the release with the tested files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          gh release create "$TAG" \
+            "dist/sijl-$VERSION-py3-none-any.whl" "dist/sijl-$VERSION.tar.gz" \
+            --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "Sijl $VERSION" --notes-file notes/release-notes.md

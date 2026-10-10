@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# Reports you generate about yourself stay on your machine
+/reports/
+
+# macOS
+.DS_Store

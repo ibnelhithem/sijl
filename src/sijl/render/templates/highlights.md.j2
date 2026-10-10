@@ -1,0 +1,23 @@
+{# The work named first, picked by a fixed rule (aggregate.Highlights), not by judgement. #}
+{% if highlights.shown %}
+## Highlights
+
+{{ highlights.note }}
+
+{% if highlights.month %}
+- **Busiest month:** {{ highlights.month.label }} — {{ highlights.month.commits|plural("commit") }} on {{ highlights.month.active_days|plural("active day") }}.
+{% endif %}
+{% if highlights.deliveries %}
+- **Largest merge requests and pull requests** ({{ highlights.deliveries|length }} of {{ highlights.deliveries_of }}, by commits of yours):
+{% for request in highlights.deliveries %}
+  - {{ request.request }}{% if request.title %} {{ request.title|md }}{% endif %} — {{ request.yours|plural("commit") }} of yours, in {{ request.repo|md }}, merged {{ request.merged }}
+{% endfor %}
+{% endif %}
+{% if highlights.tickets %}
+- **Most active tickets** ({{ highlights.tickets|length }} of {{ highlights.tickets_of }}, by commits naming them):
+{% for ticket in highlights.tickets %}
+  - {{ ticket.key|md }} — {{ ticket.named }}, {{ ticket.first }} to {{ ticket.last }}
+{% endfor %}
+{% endif %}
+
+{% endif %}

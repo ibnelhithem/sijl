@@ -1,0 +1,8 @@
+# Keep the pinned GitHub Actions current: Dependabot proposes each update as a pull request, with
+# the new release's full commit SHA and its version comment.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

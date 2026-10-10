@@ -1,0 +1,56 @@
+name: ci
+
+# Pull requests, plus main after a merge. Pushes to feature branches are covered by their PR.
+# By hand (Actions -> ci -> Run workflow, or `gh workflow run ci.yml --ref <branch>`) both jobs
+# run, macOS included, on any branch.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      # Actions are pinned to full commit SHAs: a tag can be moved, a SHA cannot.
+      # setup-uv publishes only full release tags (no floating v10), so a major tag fails.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false # no later step uses git against GitHub
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked
+      # A red run within 1-2 s and no steps executed is a GitHub billing/platform block, not a test.
+      # git's version is printed first: some of its error messages differ between versions.
+      - run: |
+          git --version
+          scripts/check.sh
+
+  check-macos:
+    # The same checks on macOS after each merge to main and when run by hand, but not on every
+    # pull request, which keeps pull-request runs quick; every release is tested on macOS too.
+    if: github.event_name != 'pull_request'
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked
+      # Which git runs matters: the runner image's own, or Apple's older /usr/bin/git.
+      - run: |
+          command -v git
+          git --version
+          scripts/check.sh

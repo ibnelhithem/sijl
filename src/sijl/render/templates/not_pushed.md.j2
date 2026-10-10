@@ -1,0 +1,17 @@
+{# Your commits on no remote branch: listed here, in no number above. #}
+{% if not_pushed.repos %}
+## Not pushed yet
+
+{{ not_pushed.sentence }}
+
+{% for repo in not_pushed.repos %}
+### {{ repo.name|md }} — {{ repo.count|plural("commit") }}
+
+| Date | Commit | Where | Subject |
+|---|---|---|---|
+{% for commit in repo.rows %}
+| {{ commit.date }} | {{ commit.commit }} | {{ commit.where }} | {{ commit.subject|cell }} |
+{% endfor %}
+
+{% endfor %}
+{% endif %}

@@ -1,0 +1,20 @@
+{# Your merge requests and pull requests, then the ones you merged for colleagues, by repository.
+   Never a colleague's name: "a colleague" merged it. #}
+## Delivered
+
+{{ delivered.paragraph }}
+
+{% for group in delivered.groups %}
+### {{ group.heading }}
+
+{% for repo in group.repos %}
+#### {{ repo.name|md }} — {{ repo.count|plural("delivery", "deliveries") }}
+
+| Merged | Request | Title | {% if group.yours %}Your commits | Merged by{% else %}Commits{% endif %}{% if delivered.tickets_column %} | Tickets{% endif %} |
+|---|---|---|{% if group.yours %}---|{% endif %}{% if delivered.tickets_column %}---|{% endif %}---|
+{% for request in repo.rows %}
+| {{ request.merged }} | {{ request.request }} | {{ request.title|cell }} | {% if group.yours %}{{ request.your_commits }} | {{ request.merged_by }}{% else %}{{ request.commits }}{% endif %}{% if delivered.tickets_column %} | {{ request.tickets|map("cell")|join(", ") }}{% endif %} |
+{% endfor %}
+
+{% endfor %}
+{% endfor %}

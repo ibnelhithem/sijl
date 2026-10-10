@@ -1,0 +1,10 @@
+{# Everything left out, capped or collapsed, with counts: always present (no silent loss). In a
+   custom template it prints nothing: Sijl appends the Caveats after the template itself. #}
+{% if caveats is defined %}
+## Caveats
+
+{% for line in caveats %}
+- {{ line }}
+{% endfor %}
+
+{% endif %}
