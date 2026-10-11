@@ -16,3 +16,5 @@ How to install Sijl, set it up and read what it gives you. Start with the
   redacted.
 - [Asking Claude from Sijl — `sijl ask`, `sijl ai status`](ai.md) — the paid route with your own
   Anthropic API key: preview, consent, costs, and the ids Sijl verifies.
+
+Changing Sijl itself? See the [developer docs](dev/README.md).
