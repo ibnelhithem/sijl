@@ -31,6 +31,9 @@ scripts/check.sh           # ruff (lint and format) and the whole test suite, ex
   code: `UPDATE_GOLDEN=1 uv run pytest tests/test_report_golden.py`.
 - **User-facing changes** get a line under `## [Unreleased]` in `CHANGELOG.md`, and the page in
   `docs/` that describes the feature is updated.
+- **Notable design choices** get a short decision record in [`docs/dev/decisions/`](docs/dev/decisions/)
+  (start from the template); [`docs/dev/`](docs/dev/README.md) explains how the code fits together
+  and the rules that keep Sijl safe.
 - **Keep Sijl read-only and offline:** it must never write into the repositories it reads, and
   nothing may reach the network except `sijl ask` / `sijl ai check` after the user's yes.
 - **No personal data in the repository:** examples use made-up names (`you@example.com`,
