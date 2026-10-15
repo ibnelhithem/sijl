@@ -22,7 +22,7 @@ uv run sijl --version
 ## Before you open a pull request
 
 ```bash
-scripts/check.sh           # ruff (lint and format) and the whole test suite, exactly as CI runs them
+scripts/check.sh           # ruff (lint and format) and the whole test suite, exactly as CI runs them, on Linux and macOS
 ```
 
 - **Tests come with the change.** The suite builds real git repositories in temporary folders

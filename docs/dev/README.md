@@ -45,6 +45,16 @@ discover → collect → normalize (collapse copies) → deliveries → squash �
 - **No silent loss.** Every filter, cap or skip is counted and named in the report's *Caveats*.
 - **People are matched by exact email, never by name.**
 
+## Checks and CI
+
+`scripts/check.sh` runs the linter, the formatter and the whole test suite.
+[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs it on Linux and macOS for every
+pull request and every push to `main`.
+[`.github/workflows/release.yml`](../../.github/workflows/release.yml) tests both systems before
+publishing; a pull-request dry run of that workflow stays Linux-only. The choice to run macOS on
+every pull request is recorded in
+[0002](decisions/0002-macos-ci-on-every-pull-request.md).
+
 ## Writing these docs
 
 Use made-up examples only (`alex@example.test`, `acme/app`, `PROJ-123`, `~/code/work`). When a

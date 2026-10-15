@@ -1,8 +1,8 @@
 name: ci
 
 # Pull requests, plus main after a merge. Pushes to feature branches are covered by their PR.
-# By hand (Actions -> ci -> Run workflow, or `gh workflow run ci.yml --ref <branch>`) both jobs
-# run, macOS included, on any branch.
+# By hand: Actions -> ci -> Run workflow, or `gh workflow run ci.yml --ref <branch>`.
+# Both check and check-macos run on every one of these triggers, with the same checks.
 on:
   pull_request:
   push:
@@ -36,9 +36,8 @@ jobs:
           scripts/check.sh
 
   check-macos:
-    # The same checks on macOS after each merge to main and when run by hand, but not on every
-    # pull request, which keeps pull-request runs quick; every release is tested on macOS too.
-    if: github.event_name != 'pull_request'
+    # The same checks on macOS, on every pull request and after each merge to main: macOS-only
+    # failures are caught before a merge. Runners are free for public repositories.
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
