@@ -1,6 +1,6 @@
 """The GitHub Actions workflows: every action pinned to a full commit SHA, the publish job the only
-one that can write, a release only from a tag push after its tests, and macOS kept off pull
-requests.
+one that can write, a release only from a tag push after its tests, and macOS runs on pull
+requests as well.
 
 The files are read as text — PyYAML is not a dependency — so the job blocks are found by their
 two-space indent under `jobs:`, the layout both workflows use.
@@ -100,12 +100,14 @@ def test_the_smoke_test_runs_on_the_files_that_are_published() -> None:
     assert "scripts/smoke-test.sh dist" in blocks["test"]
 
 
-def test_macos_runs_after_merges_and_for_releases_but_not_on_pull_requests() -> None:
+def test_macos_runs_on_pull_requests_merges_and_releases() -> None:
     ci = jobs(CI)
     assert "runs-on: ubuntu-latest" in ci["check"]
     assert "if:" not in ci["check"]  # the Linux job runs on every pull request, as before
     assert "runs-on: macos-latest" in ci["check-macos"]
-    assert "    if: github.event_name != 'pull_request'" in ci["check-macos"]
+    assert "timeout-minutes: 20" in ci["check-macos"]
+    assert "persist-credentials: false" in ci["check-macos"]
+    assert "if:" not in ci["check-macos"]  # no condition: the job runs on every trigger
     matrix = jobs(RELEASE)["test"]
     assert (
         "fromJSON(github.event_name == 'pull_request' && '[\"ubuntu-latest\"]' || "
