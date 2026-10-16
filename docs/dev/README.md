@@ -55,6 +55,22 @@ publishing; a pull-request dry run of that workflow stays Linux-only. The choice
 every pull request is recorded in
 [0002](decisions/0002-macos-ci-on-every-pull-request.md).
 
+## Secrets and private data
+
+Two different things must not become public: a credential, and a word from someone's real work.
+A finding in CI is already on the remote. **Revoke the credential first**, then remove it.
+
+| Layer | What it catches | When | This change |
+|---|---|---|---|
+| Credential scan | Private-key blocks, passwords in URLs, other generic credentials | Every pull request and every push to `main`, via `scripts/secret-scan.sh` | Yes |
+| Publication-guard list | Words from real work, in files and in commit and pull-request text | Release today; pull requests and a local hook later | Recorded in 0003 |
+| GitHub push protection | Provider tokens GitHub already knows | Before the push is accepted | Already on |
+
+The scan checks a pinned checksum before it runs, redacts what it prints, and does not send a
+found secret to its provider. Deliberate fixtures are allowed one exact value at a time, each
+with a reason, in `.betterleaks.toml`. The choices for every layer are recorded in
+[0003](decisions/0003-secrets-and-private-data.md).
+
 ## Writing these docs
 
 Use made-up examples only (`alex@example.test`, `acme/app`, `PROJ-123`, `~/code/work`). When a
