@@ -113,3 +113,16 @@ def test_macos_runs_on_pull_requests_merges_and_releases() -> None:
         "fromJSON(github.event_name == 'pull_request' && '[\"ubuntu-latest\"]' || "
         '\'["ubuntu-latest", "macos-latest"]\')'
     ) in matrix
+
+
+def test_secret_scan_checks_the_checksum_before_betterleaks_runs() -> None:
+    job = jobs(CI)["secret-scan"]
+    assert "if:" not in job  # no condition: a pull request cannot skip the scan
+    assert "persist-credentials: false" in job
+    assert "contents: write" not in job
+    assert "scripts/secret-scan.sh" in job
+    assert "uses: betterleaks" not in job  # our binary, not a third-party action
+    script = (Path(__file__).resolve().parents[1] / "scripts" / "secret-scan.sh").read_text()
+    assert script.index("sha256sum") < script.index("betterleaks")
+    assert "--redact" in script
+    assert "--validation" not in script

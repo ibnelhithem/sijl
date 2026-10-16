@@ -2,7 +2,7 @@ name: ci
 
 # Pull requests, plus main after a merge. Pushes to feature branches are covered by their PR.
 # By hand: Actions -> ci -> Run workflow, or `gh workflow run ci.yml --ref <branch>`.
-# Both check and check-macos run on every one of these triggers, with the same checks.
+# check, check-macos, and secret-scan run on every one of these triggers.
 on:
   pull_request:
   push:
@@ -53,3 +53,15 @@ jobs:
           command -v git
           git --version
           scripts/check.sh
+
+  secret-scan:
+    # Credential scan on every pull request and every push to main. No condition: one would
+    # let a pull request skip it. fetch-depth 0 is the whole history; the default checkout
+    # is one commit, and this scan reads git history.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - run: sh scripts/secret-scan.sh
