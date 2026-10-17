@@ -1,0 +1,82 @@
+title = "Sijl fixture secrets"
+
+[extend]
+useDefault = true
+
+# Each entry discards one exact captured value. `condition = "and"` means the
+# value and the path must both match, so a real secret in the same file still
+# fails. A value that only contains a fixture still fails, because the pattern
+# is anchored.
+
+[[allowlists]]
+description = "Example URL password in the remote and AI tests."
+condition = "and"
+regexTarget = "secret"
+regexes = ['''^s3cret$''']
+
+[[allowlists]]
+description = "Example URL password in the AI secret tests."
+condition = "and"
+regexTarget = "secret"
+regexes = ['''^s3cretPW$''']
+
+[[allowlists]]
+description = "IPv6 userinfo in the AI secret tests; the capture keeps the bracket tail."
+condition = "and"
+regexTarget = "secret"
+regexes = ['''^:1\]:s3cretD$''']
+
+[[allowlists]]
+description = "Source text of an escaped newline in an example URL, not a real newline."
+condition = "and"
+regexTarget = "secret"
+regexes = ['''^s3cretG\\n$''']
+
+[[allowlists]]
+description = "Example token in the redaction tests."
+condition = "and"
+regexTarget = "secret"
+regexes = ['''^t0ken$''']
+
+[[allowlists]]
+description = "GitHub basic-auth placeholder in the remote-parse tests."
+condition = "and"
+regexTarget = "secret"
+regexes = ['''^x-oauth-basic$''']
+
+[[allowlists]]
+description = "Fake GitLab-shaped token in the remote security tests."
+condition = "and"
+regexTarget = "secret"
+regexes = ['''^glpat-S3cr3tT0ken$''']
+
+[[allowlists]]
+description = "Short example password. Limited to the file that uses it."
+condition = "and"
+regexTarget = "secret"
+regexes = ['''^pw$''']
+paths = ['''(^|/)tests/test_remotes_links\.py$''']
+
+[[allowlists]]
+description = "The word secret as an example password. Limited to the file that uses it."
+condition = "and"
+regexTarget = "secret"
+regexes = ['''^secret$''']
+paths = ['''(^|/)tests/test_redact\.py$''']
+
+[[allowlists]]
+description = "Loopback userinfo in the plain-http comment and tests. The capture is not the single letter."
+condition = "and"
+regexTarget = "secret"
+regexes = ['''^:1\]:x$''']
+paths = [
+  '''(^|/)src/sijl/ai\.py$''',
+  '''(^|/)tests/test_ai_plain_http\.py$''',
+]
+
+[[allowlists]]
+description = "Ellipsis standing in for a password in an AI test docstring."
+condition = "and"
+regexTarget = "secret"
+regexes = ['''^:1\]:…$''']
+paths = ['''(^|/)tests/test_ai_secrets\.py$''']
