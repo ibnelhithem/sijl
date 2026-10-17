@@ -25,10 +25,15 @@ committed, was still found.
 
 1. **The scanner is Betterleaks 1.9.0**, pinned by version and sha256. It is the maintained
    scanner. `--validation` stays off: that flag sends a found secret to its provider. A test
-   proves the script never contains it. Output is redacted.
-2. **The pin lives in one script**, `scripts/secret-scan.sh`. The pull-request job, the release
-   job, and a local run all call that script. One test proves the checksum is checked before
-   the binary runs. The binary is ours, not a third-party Action.
+   proves the script never contains it. Output is redacted, and a finding is reported by its
+   place only: the report template (`scripts/secret-scan.tmpl`) prints its file, line, rule and
+   commit, and a test fails if the template asks for any other field. The CI log of a public
+   repository is public, so it never shows the author, email or commit message.
+2. **The pin lives in one script**, `scripts/secret-scan.sh`. The pull-request job calls it, the
+   release scan will call it, and a maintainer can run it by hand on Linux (it fetches the
+   Linux x64 build). One test proves, on the script's code with comments ignored, that the
+   checksum line comes before the line that runs the binary. The binary is ours, not a
+   third-party Action.
 3. **Each deliberate fake is allowed as its exact captured value**, with a reason, in
    `.betterleaks.toml`. The pattern is anchored, so a real secret that merely contains a fixture
    still fails. The short values are limited to the file that uses them: the value and the path
@@ -62,8 +67,11 @@ the release scan are later changes under the same issue.
 - **No scanner, only GitHub push protection.** Rejected: push protection knows provider tokens.
   The 28 findings were generic credentials, and a private-key block is one of them. The private
   word list is not a credential pattern at all.
-- **gitleaks.** Rejected: it is no longer maintained. It also does not send secrets to a
-  provider; that was not the reason. `--validation` on Betterleaks stays off either way.
+- **gitleaks.** Rejected: its README calls it feature complete, with security patches only; its
+  authors now develop Betterleaks. It also does not send secrets to a provider; that was not the
+  reason. `--validation` on Betterleaks stays off either way.
+- **Verbose output (`-v`) to say where a finding is.** Rejected: it also prints the commit's
+  author name, email and message. The template prints only what is needed to find the line.
 - **A substring filter, or a line fingerprint.** Rejected: a substring would hide a real key
   that merely contains a fixture. A fingerprint breaks when a line moves, and a real key on an
   allowed line would pass. A squash merge also changes commit ids.
@@ -93,5 +101,7 @@ the release scan are later changes under the same issue.
   status check is a repository setting, done after the merge, not in this change.
 - The word-list job, the local hooks, and the release scan are still to be added. Until the
   hook exists, only push protection acts before a credential is public.
-- Fork pull requests will not run the word-list check. They also cannot merge to `main`.
+- Fork pull requests will not run the word-list check, and the skipped job does not block the
+  merge. A maintainer can still merge one: the check then runs on the push to `main`, after the
+  merge, and again in the release workflow.
 - Do not click Disable under Secret Protection, and do not pass `--validation`.

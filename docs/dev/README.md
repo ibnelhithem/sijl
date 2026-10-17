@@ -67,7 +67,8 @@ A finding in CI is already on the remote. **Revoke the credential first**, then 
 | GitHub push protection | Provider tokens GitHub already knows | Before the push is accepted | Already on |
 
 The scan checks a pinned checksum before it runs, redacts what it prints, and does not send a
-found secret to its provider. Deliberate fixtures are allowed one exact value at a time, each
+found secret to its provider. A finding names only its file, line, rule and commit
+(`scripts/secret-scan.tmpl`); the job stops after 10 minutes. Deliberate fixtures are allowed one exact value at a time, each
 with a reason, in `.betterleaks.toml`. The choices for every layer are recorded in
 [0003](decisions/0003-secrets-and-private-data.md).
 
