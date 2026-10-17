@@ -12,6 +12,11 @@ from pathlib import Path
 WORKFLOWS = Path(__file__).resolve().parents[1] / ".github" / "workflows"
 CI = (WORKFLOWS / "ci.yml").read_text()
 RELEASE = (WORKFLOWS / "release.yml").read_text()
+SCRIPTS = WORKFLOWS.parents[1] / "scripts"
+SECRET_SCAN = (SCRIPTS / "secret-scan.sh").read_text()
+SECRET_SCAN_REPORT = (
+    (SCRIPTS / "secret-scan.tmpl").read_text() if (SCRIPTS / "secret-scan.tmpl").exists() else ""
+)
 
 USES = re.compile(r"\s*(?:- )?uses: (?P<action>\S+)(?P<rest>.*)")
 PINNED = re.compile(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}")
@@ -115,14 +120,35 @@ def test_macos_runs_on_pull_requests_merges_and_releases() -> None:
     ) in matrix
 
 
-def test_secret_scan_checks_the_checksum_before_betterleaks_runs() -> None:
+def test_secret_scan_runs_on_every_trigger_within_a_time_limit() -> None:
     job = jobs(CI)["secret-scan"]
     assert "if:" not in job  # no condition: a pull request cannot skip the scan
+    assert "timeout-minutes: 10" in job  # a hung download cannot hold a runner for hours
     assert "persist-credentials: false" in job
     assert "contents: write" not in job
-    assert "scripts/secret-scan.sh" in job
+    assert "run: sh scripts/secret-scan.sh" in job
     assert "uses: betterleaks" not in job  # our binary, not a third-party action
-    script = (Path(__file__).resolve().parents[1] / "scripts" / "secret-scan.sh").read_text()
-    assert script.index("sha256sum") < script.index("betterleaks")
-    assert "--redact" in script
-    assert "--validation" not in script
+
+
+def test_secret_scan_verifies_the_checksum_before_the_binary_runs() -> None:
+    # Comment lines are dropped: a word in a comment proves nothing about the order of the code.
+    code = [line.strip() for line in _code(SECRET_SCAN)]
+    assert "set -eu" in code  # a failed check stops the script
+    verify = [n for n, line in enumerate(code) if "sha256sum -c" in line]
+    run = [n for n, line in enumerate(code) if line.startswith('"$work/betterleaks"')]
+    assert len(verify) == 1 and len(run) == 1
+    assert verify[0] < run[0]
+
+
+def test_a_finding_is_reported_by_its_place_never_by_its_content() -> None:
+    # The CI log of a public repository is public: the file, line, rule and commit are enough.
+    code = "\n".join(_code(SECRET_SCAN))
+    assert "--redact" in code  # a template mistake would still print REDACTED, not the secret
+    assert "--report-format template --report-template scripts/secret-scan.tmpl" in code
+    assert "--validation" not in code  # it would send a found secret to its provider
+    assert set(re.findall(r"\.([A-Z]\w*)", SECRET_SCAN_REPORT)) == {
+        "File",
+        "StartLine",
+        "RuleID",
+        "Commit",
+    }
