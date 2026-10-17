@@ -100,8 +100,9 @@ _INTERNET = (socket.AF_INET, socket.AF_INET6)
 # Name lookups, forward and reverse: each may ask a DNS server.
 _LOOKUPS = ("getaddrinfo", "gethostbyname", "gethostbyname_ex", "gethostbyaddr", "getnameinfo")
 # Programs tests may start without opting in: none of them is asked to reach the network, and
-# each child gets no proxy settings and, for Python, the guard below.
-_LOCAL_PROGRAMS = frozenset({"git", "ssh", "sh"})
+# each child gets no proxy settings and, for Python, the guard below. ps is here because macOS
+# has no /proc, so a test asks ps whether a killed child is a zombie.
+_LOCAL_PROGRAMS = frozenset({"git", "ssh", "sh", "ps"})
 _PROXIES = ("http_proxy", "https_proxy", "ftp_proxy", "all_proxy")
 
 # Imported first by every Python a test starts (it is put on PYTHONPATH as sitecustomize):
@@ -154,7 +155,7 @@ def network(
     that wrongly built a real Anthropic client after its "yes" could not send. Local sockets
     (socketpair, AF_UNIX) are left alone.
 
-    Subprocesses: a test may start git, ssh, sh and Python (`_LOCAL_PROGRAMS`); anything else
+    Subprocesses: a test may start git, ssh, sh, ps and Python (`_LOCAL_PROGRAMS`); anything else
     needs `@pytest.mark.allow_subprocess`. Every child runs without proxy variables, and every
     Python child imports the same refusals first (`child_guard` on PYTHONPATH as
     sitecustomize; `python -I` or `-S` would skip it, and no test uses them).

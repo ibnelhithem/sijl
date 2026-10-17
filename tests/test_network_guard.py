@@ -112,6 +112,8 @@ def test_only_known_local_programs_may_be_started(network) -> None:
     with pytest.raises(NetworkBlocked, match="subprocess"):
         subprocess.run(["true"], check=False)
     assert subprocess.run(["git", "--version"], capture_output=True).returncode == 0
+    # macOS has no /proc, so a killed-process check asks ps. It must stay allowed.
+    assert subprocess.run(["ps", "-p", "1", "-o", "pid="], capture_output=True).returncode == 0
 
 
 @pytest.mark.allow_subprocess
