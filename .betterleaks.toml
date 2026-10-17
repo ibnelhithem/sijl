@@ -3,10 +3,10 @@ title = "Sijl fixture secrets"
 [extend]
 useDefault = true
 
-# Each entry discards one exact captured value. `condition = "and"` means the
-# value and the path must both match, so a real secret in the same file still
-# fails. A value that only contains a fixture still fails, because the pattern
-# is anchored.
+# Each entry discards one exact captured value. The pattern is anchored, so a
+# value that only contains a fixture still fails, and so does a real secret in
+# the same file. Entries that also list `paths` apply only in those files:
+# `condition = "and"` means the value and the path must both match.
 
 [[allowlists]]
 description = "Example URL password in the remote and AI tests."
