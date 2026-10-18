@@ -1,0 +1,47 @@
+#!/bin/sh
+# Opt-in: `git config core.hooksPath scripts/hooks` (docs/dev/README.md). Skip once: --no-verify.
+#
+# Before a push: the publication guard (scripts/publication_guard.py) checks every commit this
+# remote does not have yet (author, committer, message, the files it adds or changes) and the
+# name of each ref pushed. A finding names the place and the list entry's number, never the word.
+# The private list is the file PUBLICATION_GUARD_LIST names, else `git config
+# publicationGuard.list`. Without the list or python3 it warns loudly and lets the push go.
+set -u
+remote=$1
+guard="$(cd "$(dirname "$0")/.." && pwd)/publication_guard.py"
+
+warn() {
+    printf 'pre-push: WARNING: %s\n' "$@" >&2
+}
+
+list=${PUBLICATION_GUARD_LIST:-}
+if [ -z "$list" ]; then
+    list=$(git config --type=path --get publicationguard.list) || list=
+fi
+if [ -z "$list" ] || [ ! -f "$list" ]; then
+    warn "no word list: set PUBLICATION_GUARD_LIST, or git config publicationGuard.list FILE." \
+        "This push was NOT checked for private words."
+    exit 0
+fi
+if ! command -v python3 >/dev/null 2>&1; then
+    warn "python3 is not on PATH: this push was NOT checked for private words."
+    exit 0
+fi
+
+status=0
+# One line per ref: <local ref> <local sha> <remote ref> <remote sha>.
+while read -r _local_ref local_sha remote_ref _remote_sha; do
+    case $local_sha in
+        *[!0]*) ;;
+        *) continue ;; # a delete sends no commit
+    esac
+    printf '%s\n' "$remote_ref" |
+        python3 "$guard" --list "$list" text "the name of the pushed ref" || status=1
+    # Everything not on this remote's branches yet: a new branch has no remote commit to start from.
+    python3 "$guard" --list "$list" commits "$local_sha" --not --remotes="$remote" </dev/null ||
+        status=1
+done
+if [ "$status" -ne 0 ]; then
+    echo "pre-push: stopped; nothing was sent. The words are never printed: see the entries." >&2
+fi
+exit "$status"
