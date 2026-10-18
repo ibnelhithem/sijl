@@ -29,20 +29,23 @@ committed, was still found.
    place only: the report template (`scripts/secret-scan.tmpl`) prints its file, line, rule and
    commit, and a test fails if the template asks for any other field. The CI log of a public
    repository is public, so it never shows the author, email or commit message.
-2. **The pin lives in one script**, `scripts/secret-scan.sh`. The pull-request job calls it, the
-   release scan will call it, and a maintainer can run it by hand on Linux (it fetches the
-   Linux x64 build). One test proves, on the script's code with comments ignored, that the
-   checksum line comes before the line that runs the binary. The binary is ours, not a
-   third-party Action.
+2. **The pin lives in one script**, `scripts/secret-scan.sh`. The pull-request job calls it on
+   the history, the release calls it on the unpacked wheel and sdist (`dist DIR`), and a
+   maintainer can run it by hand on Linux (it fetches the Linux x64 build). Both scans name
+   `.betterleaks.toml`: a folder scan would look for it inside the unpacked files. One test
+   proves, on the script's code with comments ignored, that the checksum line comes before the
+   one line that runs the binary. The binary is ours, not a third-party Action.
 3. **Each deliberate fake is allowed as its exact captured value**, with a reason, in
    `.betterleaks.toml`. The pattern is anchored, so a real secret that merely contains a fixture
    still fails. The short values are limited to the file that uses them: the value and the path
-   must both match. A different string fails until the allow entry and its reason change
+   must both match. A path pattern also matches that file inside the built wheel and sdist. A different string fails until the allow entry and its reason change
    together. The defaults stay on (`useDefault = true`).
 4. **The publication-guard check for text that is not a file** (commit messages, author and
-   committer name and email, branch name, pull-request title and body) lives in `scripts/`.
-   The test, CI, and the hook call that module. A hook does not start the test suite. The
-   module is not shipped in the wheel.
+   committer name and email, branch name, pull-request title and body) lives in
+   `scripts/publication_guard.py`, with the matcher it shares with the file checks. The test,
+   CI, and the hook call that module. A hook does not start the test suite. The module uses
+   only the standard library, so a hook and CI run it with `python3`, and it is not shipped in
+   the wheel.
 5. **The pull-request title and body check is its own workflow file.** It needs the
    `pull_request` type `edited`. The credential scan does not, so it is a job in `ci.yml` with
    no `if:`. Adding `edited` to `ci.yml` would rerun `check-macos` and, with
@@ -58,9 +61,23 @@ committed, was still found.
    The settings page has no separate switch for them, only Disable on Secret Protection, and
    that button turns push protection off too. Validity checks stay off: they contact the
    provider.
+9. **Dependabot's pull requests skip the word-list job, as forks do.** A run Dependabot starts
+   gets Dependabot secrets, not Actions secrets. Its branches are in this repository, so the
+   fork condition lets them through; the job condition names `dependabot[bot]` as well. The
+   push to `main` after the merge checks the list.
+10. **The hooks are opt-in, POSIX `sh`, and only read.** `git config core.hooksPath
+    scripts/hooks` turns them on. `pre-commit` runs Betterleaks on the staged changes.
+    `pre-push` runs the guard on every commit the remote does not have yet and on each pushed
+    ref's name. The list is the file `PUBLICATION_GUARD_LIST` names, else `git config
+    publicationGuard.list`. Without the scanner, the list or `python3`, a hook warns loudly
+    and lets the commit or push go.
+11. **Neither CI check is a required status check.** A pull request's commits are public once
+    pushed, and `refs/pull/N/head` keeps them after the branch is deleted. Blocking the merge
+    un-publishes nothing: the answer to a finding is to revoke the credential, or to rewrite
+    the text. The red check is in front of whoever merges, and the release checks the files it
+    publishes with both scans.
 
-This change adds the credential scan (1–3) and records 4–8. The word-list job, the hooks, and
-the release scan are later changes under the same issue.
+The credential scan (1–3) came first, in #32 and #34; the rest completes the issue.
 
 ## Alternatives considered
 
@@ -89,6 +106,14 @@ the release scan are later changes under the same issue.
   the pull request's code with the secret present.
 - **A fourth release job for the scan.** Rejected: the test pins the release jobs to `build`,
   `test`, and `publish`. `test` is a matrix, so a scan there would run once per system.
+- **Make `secret-scan` and `word-list` required status checks.** Rejected (decision 11): they
+  run after the push, when the text is already public. A required check would only keep it off
+  `main`, and the release checks what it publishes anyway.
+- **A Dependabot copy of the list secret.** Rejected: a second copy to keep in step, held by
+  every Dependabot run, for pull requests that only change pinned action versions.
+- **The hook's range from the remote's old commit (`<remote sha>..<local sha>`).** Rejected: a
+  new branch has none, and after a force push the old commit may not exist locally.
+  `<local sha> --not --remotes=<remote>` covers both.
 - **Turn on non-provider patterns, or click Disable.** Rejected: there is no separate switch.
   Disable turns off Secret Protection, including push protection.
 
@@ -97,11 +122,13 @@ the release scan are later changes under the same issue.
 - A credential finding in CI means the value is already on the remote. Revoke it first.
 - Changing a fixture fails the scan until `.betterleaks.toml` allows the new exact value and
   the reason is updated with it.
-- `secret-scan` has no `if:`, so a pull request cannot skip it. Making that job a required
-  status check is a repository setting, done after the merge, not in this change.
-- The word-list job, the local hooks, and the release scan are still to be added. Until the
-  hook exists, only push protection acts before a credential is public.
-- Fork pull requests will not run the word-list check, and the skipped job does not block the
-  merge. A maintainer can still merge one: the check then runs on the push to `main`, after the
-  merge, and again in the release workflow.
+- `secret-scan` has no `if:`, so a pull request cannot skip it. It and `word-list` are not
+  required checks (11): read a red one before merging, because it does not disable the button.
+- Only the hooks and push protection act before anything is public, and the hooks are opt-in:
+  each contributor turns them on.
+- Fork and Dependabot pull requests will not run the word-list check, and the skipped job does
+  not block the merge. A maintainer can still merge one: the check then runs on the push to
+  `main`, after the merge, and again in the release workflow.
+- The guard checks the whole text of every file a new commit adds or changes. A listed word
+  already on the remote fails again whenever its file changes, until it is removed.
 - Do not click Disable under Secret Protection, and do not pass `--validation`.

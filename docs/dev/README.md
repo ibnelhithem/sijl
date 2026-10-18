@@ -58,19 +58,40 @@ every pull request is recorded in
 ## Secrets and private data
 
 Two different things must not become public: a credential, and a word from someone's real work.
-A finding in CI is already on the remote. **Revoke the credential first**, then remove it.
+A finding in CI is already on the remote. **Revoke the credential first**, then remove it; a
+listed word is rewritten out of the text it is in.
 
-| Layer | What it catches | When | This change |
-|---|---|---|---|
-| Credential scan | Private-key blocks, passwords in URLs, other generic credentials | Every pull request and every push to `main`, via `scripts/secret-scan.sh` | Yes |
-| Publication-guard list | Words from real work, in files and in commit and pull-request text | Release today; pull requests and a local hook later | Recorded in 0003 |
-| GitHub push protection | Provider tokens GitHub already knows | Before the push is accepted | Already on |
+| Layer | What it catches | When |
+|---|---|---|
+| `pre-commit` hook (opt-in) | Credentials in the staged changes (Betterleaks) | Before a commit, on your machine |
+| `pre-push` hook (opt-in) | Listed words in each new commit (author, committer, message, the files it adds or changes) and in the pushed ref's name | Before a push, on your machine |
+| GitHub push protection | Provider tokens GitHub already knows | Before the push is accepted |
+| `secret-scan` job in `ci.yml` | Private-key blocks, passwords in URLs, other generic credentials, in the whole history | Every pull request and every push to `main` |
+| `guard.yml` (the word list) | Listed words in the tree, each new commit, the branch name, and the pull request's title and body | Every pull request from this repository, again when its title or body is edited, and every push to `main`; forks and Dependabot skip it |
+| The release | Credentials in the unpacked wheel and sdist; listed words in the tree and in both files | Before anything is published |
 
-The scan checks a pinned checksum before it runs, redacts what it prints, and does not send a
-found secret to its provider. A finding names only its file, line, rule and commit
-(`scripts/secret-scan.tmpl`); the job stops after 10 minutes. Deliberate fixtures are allowed one exact value at a time, each
-with a reason, in `.betterleaks.toml`. The choices for every layer are recorded in
-[0003](decisions/0003-secrets-and-private-data.md).
+Only the first three act before anything is public. Neither CI check is required to merge: by
+the time it runs the text is public, so read a red one before you merge.
+
+A credential finding names only its file, line, rule and commit (`scripts/secret-scan.tmpl`); the
+scan checks a pinned checksum before it runs, redacts what it prints, does not send a found
+secret to its provider, and stops after 10 minutes. Deliberate fixtures are allowed one exact
+value at a time, each with a reason, in `.betterleaks.toml`. A word-list finding names the place
+and the number of the list's entry, never the word (`scripts/publication_guard.py`).
+
+### The hooks
+
+```bash
+git config core.hooksPath scripts/hooks                 # turn both hooks on, in this clone
+git config publicationGuard.list /path/to/your/list     # pre-push's list, unless PUBLICATION_GUARD_LIST is set
+git config --unset core.hooksPath                       # turn them off again
+```
+
+`pre-commit` needs `betterleaks` on `PATH` (the version `scripts/secret-scan.sh` pins), and
+`pre-push` needs `python3` and the list. Without one of them, the hook warns loudly and lets the
+commit or push go. `--no-verify` skips the hooks once. The hooks only read.
+
+The choices for every layer are recorded in [0003](decisions/0003-secrets-and-private-data.md).
 
 ## Writing these docs
 
