@@ -65,12 +65,12 @@ regexes = ['''^secret$''']
 paths = ['''(^|/)tests/test_redact\.py$''']
 
 [[allowlists]]
-description = "Loopback userinfo in the plain-http comment and tests. The capture is not the single letter."
+description = "Loopback userinfo in the plain-http comment and tests. The capture is not the single letter. The source path also matches the built wheel's sijl/ai.py."
 condition = "and"
 regexTarget = "secret"
 regexes = ['''^:1\]:x$''']
 paths = [
-  '''(^|/)src/sijl/ai\.py$''',
+  '''(^|/)sijl/ai\.py$''',
   '''(^|/)tests/test_ai_plain_http\.py$''',
 ]
 

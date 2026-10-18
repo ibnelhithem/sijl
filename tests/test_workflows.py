@@ -214,3 +214,20 @@ def test_forks_and_dependabot_skip_the_word_list_never_pass_it() -> None:
     assert "GUARD_LIST: ${{ secrets.PUBLICATION_GUARD_LIST }}" in job
     assert 'if [ -z "$GUARD_LIST" ]; then' in job  # a run that should have it fails without it
 
+
+def test_the_release_scans_the_unpacked_files_before_they_are_uploaded() -> None:
+    build = jobs(RELEASE)["build"]
+    scan = build.index("run: sh scripts/secret-scan.sh dist dist")
+    assert build.index("uv build") < scan < build.index("uses: actions/upload-artifact@")
+    paths = top_level(RELEASE).split("  pull_request:", 1)[1]
+    for changed in ("scripts/secret-scan.sh", "scripts/secret-scan.tmpl", ".betterleaks.toml"):
+        assert f'      - "{changed}"' in paths  # a change to the scan reruns the dry run
+
+
+def test_the_history_and_the_built_files_are_scanned_with_this_repository_allowlist() -> None:
+    # A folder scan looks for its config inside the unpacked files, where there is none: the
+    # test fixtures' allowed values would fail it. One run line serves both scans.
+    code = "\n".join(_code(SECRET_SCAN))
+    assert "set -- git ." in code
+    assert 'set -- dir "$work/unpacked"' in code
+    assert '"$work/betterleaks" "$@" --config .betterleaks.toml' in code
