@@ -1,142 +1,49 @@
 """The publication guard: no tracked file — and no file of a built wheel or sdist — may hold a word
 from the maintainer's private list of words that must never be published.
 
-The list is never in this repository, in any form: the guard reads it from the file that
-`PUBLICATION_GUARD_LIST` names (one word per line; blank lines and `#` comments are ignored).
-The release workflow writes that file from a GitHub Actions secret; a maintainer keeps their own
-copy outside the repository. Without the variable the checks against the list are skipped, with
-the reason; the tests below that prove the scanner itself always run, with a harmless canary.
-
-Every text is lower-cased and cut into candidates, each looked up in the list:
-
-- **words**: runs of letters and digits (`[a-z0-9]+`);
-- **compounds**: words joined by `-`, `_`, `.`, `@` or `+` — every contiguous part of one, so
-  `a-b.c` yields `a-b`, `b.c` and `a-b.c` besides the words (a hyphenated name, an address, a
-  user name with a dot);
-- **path pieces**: one folder between slashes, with the slashes, and with a `~` before it
-  (`/x/`, `~/x/`), overlapping, so every folder of a path is one.
-
-A failure names the file, the line and the number of the list's entry — never the word, so a
-public CI log leaks nothing. To check a built distribution as well, point
-`PUBLICATION_GUARD_DIST` at the folder that holds the wheel and the sdist
+The matcher lives in `scripts/publication_guard.py` (how a text is cut into candidates, and why a
+failure names the entry's number, never the word), shared with the `guard` workflow and the
+`pre-push` hook. The list is the file `PUBLICATION_GUARD_LIST` names; the release workflow writes
+it from a GitHub Actions secret, and a maintainer keeps their own copy outside the repository.
+Without the variable the checks against the list are skipped, with the reason; the tests below
+that prove the matcher itself always run, with a harmless canary. To check a built distribution
+as well, point `PUBLICATION_GUARD_DIST` at the folder that holds the wheel and the sdist
 (`scripts/release-check.sh` and the release workflow do).
 """
 
 from __future__ import annotations
 
+import importlib.util
 import io
+import json
 import os
-import re
 import subprocess
+import sys
 import tarfile
 import zipfile
-from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 
 import pytest
 
+from tests.gitfactory import RepoBuilder, Who, identity_env
+
 ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "scripts" / "publication_guard.py"
 # Read at import, before any fixture changes the environment.
 LIST = os.environ.get("PUBLICATION_GUARD_LIST", "")
 DIST = os.environ.get("PUBLICATION_GUARD_DIST", "")
 
-_WORD = re.compile(r"[a-z0-9]+")
-_COMPOUND = re.compile(r"[a-z0-9]+(?:[-_.@+][a-z0-9]+)+")
-_PIECE = re.compile(r"(?=(~?/[a-z0-9._-]+/))")
-_SEPARATED = re.compile(r"([-_.@+])")
-_SKIP_DIRS = {".git", ".venv", "dist", "build", "__pycache__", ".pytest_cache", ".ruff_cache"}
+
+def _load_guard():
+    spec = importlib.util.spec_from_file_location("publication_guard", SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
-def read_list(path: Path) -> dict[str, int]:
-    """The forbidden words of a list file, lower-cased, each with its line number in the file."""
-    words: dict[str, int] = {}
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        word = line.split("#", 1)[0].strip().lower()
-        if word:
-            words.setdefault(word, number)
-    return words
-
-
-def candidates(text: str) -> set[str]:
-    """Every word, compound part and path piece of `text`, lower-cased."""
-    text = text.lower()
-    found = set(_WORD.findall(text))
-    for compound in _COMPOUND.findall(text):
-        parts = _SEPARATED.split(compound)  # word, separator, word, …
-        words = parts[0::2]
-        for start in range(len(words)):
-            for end in range(start + 2, len(words) + 1):
-                found.add("".join(parts[2 * start : 2 * end - 1]))
-    found.update(match.group(1) for match in _PIECE.finditer(text))
-    return found
-
-
-def hits(named: Iterable[tuple[str, str]], forbidden: Mapping[str, int]) -> list[str]:
-    """`where: list entry N` for every forbidden word in the (where, text) pairs, line by line.
-    The entry's number, not the word, is reported."""
-    found: list[str] = []
-    for name, text in named:
-        for number, line in enumerate(text.splitlines() or [""], 1):
-            for word in sorted(candidates(line) & forbidden.keys()):
-                found.append(f"{name}:{number}: list entry {forbidden[word]}")
-    return found
-
-
-def _text(data: bytes) -> str | None:
-    if b"\0" in data:
-        return None
-    try:
-        return data.decode("utf-8")
-    except UnicodeDecodeError:
-        return None
-
-
-def tracked_files(root: Path = ROOT) -> list[Path]:
-    """The files a commit would publish: tracked or not ignored. Outside a git checkout (an
-    unpacked sdist), every file below `root` but caches and build output."""
-    try:
-        command = ["git", "-C", str(root), "ls-files", "-z", "--cached", "--others"]
-        listed = subprocess.run(
-            [*command, "--exclude-standard"], capture_output=True, check=True
-        ).stdout
-    except (OSError, subprocess.CalledProcessError):
-        return [
-            path
-            for path in root.rglob("*")
-            if path.is_file() and not _SKIP_DIRS.intersection(path.relative_to(root).parts)
-        ]
-    return [root / name for name in listed.decode("utf-8").split("\0") if name]
-
-
-def _tree(root: Path) -> Iterator[tuple[str, str]]:
-    for path in tracked_files(root):
-        if not path.is_file():  # deleted in the working tree
-            continue
-        relative = path.relative_to(root).as_posix()
-        yield f"{relative} (its path)", relative  # the path itself is published too
-        text = _text(path.read_bytes())
-        if text is not None:
-            yield relative, text
-
-
-def _distribution(path: Path) -> Iterator[tuple[str, str]]:
-    """Every member name and text member of a wheel or an sdist."""
-    yield f"{path.name} (its name)", path.name
-    if path.suffix == ".whl":
-        with zipfile.ZipFile(path) as wheel:
-            for info in wheel.infolist():
-                yield f"{path.name}:{info.filename} (its path)", info.filename
-                text = _text(wheel.read(info))
-                if text is not None:
-                    yield f"{path.name}:{info.filename}", text
-    else:
-        with tarfile.open(path) as sdist:
-            for member in sdist.getmembers():
-                yield f"{path.name}:{member.name} (its path)", member.name
-                handle = sdist.extractfile(member) if member.isfile() else None
-                text = _text(handle.read()) if handle is not None else None
-                if text is not None:
-                    yield f"{path.name}:{member.name}", text
+guard = _load_guard()
+read_list, hits, tracked_files = guard.read_list, guard.hits, guard.tracked_files
+tree, distribution, commits = guard.tree, guard.distribution, guard.commits
 
 
 def _private_list() -> dict[str, int]:
@@ -156,7 +63,7 @@ def test_no_tracked_file_holds_a_forbidden_word() -> None:
     forbidden = _private_list()
     files = tracked_files()
     assert len(files) > 50 and Path(__file__).resolve() in files  # the walk saw the project
-    assert hits(_tree(ROOT), forbidden) == []
+    assert hits(tree(ROOT), forbidden) == []
 
 
 def test_no_built_file_holds_a_forbidden_word() -> None:
@@ -165,7 +72,7 @@ def test_no_built_file_holds_a_forbidden_word() -> None:
         pytest.skip("PUBLICATION_GUARD_DIST names no folder of built files")
     built = sorted(Path(DIST).glob("*.whl")) + sorted(Path(DIST).glob("*.tar.gz"))
     assert built, f"no wheel or sdist in {DIST}"
-    assert hits((pair for path in built for pair in _distribution(path)), forbidden) == []
+    assert hits((pair for path in built for pair in distribution(path)), forbidden) == []
 
 
 # ------------------------------------------------------------- the scanner, with a canary word
@@ -198,23 +105,23 @@ def test_a_forbidden_word_written_anywhere_is_found(
     tmp_path: Path, written: str, forbidden: str
 ) -> None:
     (tmp_path / "notes.md").write_text(f"before\n{written}\nafter\n")
-    assert hits(_tree(tmp_path), {forbidden: 7}) == ["notes.md:2: list entry 7"]
+    assert hits(tree(tmp_path), {forbidden: 7}) == ["notes.md:2: list entry 7"]
 
 
 def test_a_failure_never_repeats_the_word(tmp_path: Path) -> None:
     (tmp_path / "notes.md").write_text(f"{CANARY}\n")
-    (found,) = hits(_tree(tmp_path), FORBIDDEN)
+    (found,) = hits(tree(tmp_path), FORBIDDEN)
     assert CANARY not in found
 
 
 def test_a_forbidden_word_in_a_file_name_is_found(tmp_path: Path) -> None:
     (tmp_path / f"{CANARY}-notes.txt").write_text("nothing here\n")
-    assert hits(_tree(tmp_path), FORBIDDEN) == [f"{CANARY}-notes.txt (its path):1: list entry 1"]
+    assert hits(tree(tmp_path), FORBIDDEN) == [f"{CANARY}-notes.txt (its path):1: list entry 1"]
 
 
 def test_a_word_that_only_contains_a_forbidden_one_is_not_found(tmp_path: Path) -> None:
     (tmp_path / "notes.md").write_text(f"{CANARY}x x{CANARY} {CANARY}2\n")
-    assert hits(_tree(tmp_path), FORBIDDEN) == []
+    assert hits(tree(tmp_path), FORBIDDEN) == []
 
 
 def test_a_forbidden_word_inside_a_wheel_or_an_sdist_is_found(tmp_path: Path) -> None:
@@ -227,8 +134,191 @@ def test_a_forbidden_word_inside_a_wheel_or_an_sdist_is_found(tmp_path: Path) ->
         member = tarfile.TarInfo(f"pkg-1.0.0/{CANARY}/README.md")
         member.size = len(data)
         archive.addfile(member, io.BytesIO(data))
-    found = hits((pair for path in (wheel, sdist) for pair in _distribution(path)), FORBIDDEN)
+    found = hits((pair for path in (wheel, sdist) for pair in distribution(path)), FORBIDDEN)
     assert found == [
         f"{wheel.name}:pkg-1.0.0.dist-info/METADATA:2: list entry 1",
         f"{sdist.name}:pkg-1.0.0/{CANARY}/README.md (its path):1: list entry 1",
     ]
+
+
+# ------------------------------------- text that is not a file: commits, a pull request's text
+
+AT = "2026-05-04T10:00:00+02:00"
+PLAIN = Who("Alex Example", "alex@example.test")
+
+
+def _one_more_commit(tmp_path: Path, subject: str = "feat: change", **commit) -> tuple[Path, str]:
+    """A repository with a clean first commit, then one commit made of `commit`."""
+    repo = RepoBuilder(tmp_path / "repo")
+    repo.commit("chore: start", at=AT, who=PLAIN)
+    commit.setdefault("who", PLAIN)
+    commit.setdefault("committer", PLAIN)
+    commit.setdefault("files", {"change.txt": "a change\n"})
+    return repo.path, repo.commit(subject, at=AT, **commit)
+
+
+@pytest.mark.parametrize(
+    ("commit", "place"),
+    [
+        ({"subject": f"fix the {CANARY} parser"}, "message:1"),
+        ({"body": f"Why:\n\nsee {CANARY}"}, "message:5"),
+        ({"who": Who(f"{CANARY} Person", "alex@example.test")}, "author name:1"),
+        ({"who": Who("Alex", f"{CANARY}@example.test")}, "author email:1"),
+        ({"committer": Who(f"Sam {CANARY}", "sam@example.test")}, "committer name:1"),
+        ({"committer": Who("Sam", f"sam@{CANARY}.example")}, "committer email:1"),
+        ({"files": {"notes.md": f"fine\n{CANARY}\n"}}, "notes.md:2"),
+        ({"files": {f"docs/{CANARY}.md": "fine\n"}}, f"docs/{CANARY}.md (its path):1"),
+    ],
+    ids=[
+        "subject",
+        "body",
+        "author",
+        "author-email",
+        "committer",
+        "committer-email",
+        "file",
+        "path",
+    ],
+)
+def test_a_forbidden_word_anywhere_in_a_commit_is_found(
+    tmp_path: Path, commit: dict, place: str
+) -> None:
+    repo, sha = _one_more_commit(tmp_path, **commit)
+    found = hits(commits(repo, ["HEAD~1..HEAD"]), FORBIDDEN)
+    assert found == [f"commit {sha[:12]}, {place}: list entry 1"]
+
+
+def test_only_the_commits_asked_for_are_checked_and_a_deleted_file_is_not(tmp_path: Path) -> None:
+    repo = RepoBuilder(tmp_path / "repo")
+    first = repo.commit(f"feat: {CANARY}", at=AT, who=PLAIN, files={"old.md": f"{CANARY}\n"})
+    repo.commit("chore: remove it", at=AT, who=PLAIN, files={"old.md": None})
+    assert hits(commits(repo.path, [f"{first}..HEAD"]), FORBIDDEN) == []
+    assert (
+        hits(commits(repo.path, ["HEAD"]), FORBIDDEN)
+        == [
+            f"commit {first[:12]}, message:1: list entry 1",  # a first commit is checked in full
+            f"commit {first[:12]}, old.md:1: list entry 1",
+        ]
+    )
+
+
+def test_every_file_a_commit_changes_is_read(tmp_path: Path) -> None:
+    # The files are read in one `git cat-file --batch`: each must start where the last ended.
+    files = {"a.md": "no newline at the end", "b.md": f"fine\n{CANARY}\n"}
+    repo, sha = _one_more_commit(tmp_path, files=files)
+    assert hits(commits(repo, ["HEAD~1..HEAD"]), FORBIDDEN) == [
+        f"commit {sha[:12]}, b.md:2: list entry 1"
+    ]
+
+
+def test_a_replacement_cannot_hide_the_commit_that_is_pushed(tmp_path: Path) -> None:
+    # `git replace` changes what `git log` shows, not what `git push` sends.
+    repo = RepoBuilder(tmp_path / "repo")
+    leaky = repo.commit(f"feat: {CANARY}", at=AT, who=PLAIN, files={"a.md": "fine\n"})
+    clean = repo.git(
+        "commit-tree",
+        f"{leaky}^{{tree}}",
+        "-m",
+        "feat: clean",
+        env=identity_env(PLAIN, AT, PLAIN, AT),
+    ).strip()
+    repo.git("replace", leaky, clean)
+    assert hits(commits(repo.path, ["HEAD"]), FORBIDDEN) == [
+        f"commit {leaky[:12]}, message:1: list entry 1"
+    ]
+
+
+def test_commits_already_on_the_remote_are_not_checked_again(tmp_path: Path) -> None:
+    # The range the pre-push hook asks for: everything not yet on that remote's branches.
+    repo = RepoBuilder(tmp_path / "repo")
+    repo.commit(f"feat: {CANARY}", at=AT, who=PLAIN)
+    repo.publish(tmp_path / "remote.git", "HEAD:refs/heads/main")
+    repo.commit("feat: clean", at=AT, who=PLAIN, files={"new.md": "fine\n"})
+    assert hits(commits(repo.path, ["HEAD", "--not", "--remotes=origin"]), FORBIDDEN) == []
+    assert hits(commits(repo.path, ["HEAD"]), FORBIDDEN) != []
+
+
+@pytest.fixture
+def canary_list(tmp_path: Path) -> Path:
+    listing = tmp_path / "canary-list.txt"
+    listing.write_text(f"{CANARY}\n")
+    return listing
+
+
+def _command(
+    cwd: Path, *args: str, listing: Path | None = None, stdin: str = ""
+) -> subprocess.CompletedProcess[str]:
+    """scripts/publication_guard.py as CI and the hook run it; never with the real list."""
+    env = {name: value for name, value in os.environ.items() if name != "PUBLICATION_GUARD_LIST"}
+    if listing is not None:
+        env["PUBLICATION_GUARD_LIST"] = str(listing)
+    return subprocess.run(
+        [sys.executable, str(SCRIPT), *args],
+        cwd=cwd,
+        env=env,
+        input=stdin,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_the_command_reports_pull_request_text_by_place_never_by_word(
+    tmp_path: Path, canary_list: Path
+) -> None:
+    repo, _ = _one_more_commit(tmp_path)
+    body = f"Summary\n\nfixes the {CANARY.upper()} case\n"
+    result = _command(repo, "text", "pull request body", listing=canary_list, stdin=body)
+    assert result.returncode == 1
+    assert result.stdout == "pull request body:3: list entry 1\n"
+    assert CANARY not in (result.stdout + result.stderr).lower()
+
+
+def test_the_command_passes_clean_commits_and_says_so(tmp_path: Path, canary_list: Path) -> None:
+    repo, _ = _one_more_commit(tmp_path)
+    result = _command(repo, "--list", str(canary_list), "commits", "HEAD")
+    assert (result.returncode, result.stdout) == (0, "")
+    assert "no listed word in" in result.stderr  # a pass is said, never silent
+
+
+def test_without_a_list_the_command_fails_and_says_why(tmp_path: Path) -> None:
+    repo, _ = _one_more_commit(tmp_path)
+    result = _command(repo, "tree")
+    assert result.returncode == 2
+    assert "no word list" in result.stderr
+
+
+def test_the_command_refuses_an_option_git_would_act_on(tmp_path: Path, canary_list: Path) -> None:
+    repo, _ = _one_more_commit(tmp_path)
+    result = _command(repo, "commits", "HEAD", "--output=out.txt", listing=canary_list)
+    assert result.returncode == 2
+    assert not (repo / "out.txt").exists()
+
+
+def test_the_command_reads_a_pull_requests_text_from_the_event_file(
+    tmp_path: Path, canary_list: Path
+) -> None:
+    repo, _ = _one_more_commit(tmp_path)
+    event = tmp_path / "event.json"
+    request = {"head": {"ref": f"fix/{CANARY}"}, "title": "A clean title", "body": None}
+    event.write_text(json.dumps({"pull_request": request}))
+    assert guard.pull_request(event)[2] == ("pull request body", "")  # an empty body is null
+    request["body"] = f"Summary\n\nthe {CANARY} case"
+    event.write_text(json.dumps({"pull_request": request}))
+    result = _command(repo, "pull-request", str(event), listing=canary_list)
+    assert result.returncode == 1
+    assert result.stdout.splitlines() == [
+        "branch name:1: list entry 1",
+        "pull request body:3: list entry 1",
+    ]
+    assert CANARY not in (result.stdout + result.stderr).lower()
+
+
+def test_a_failure_prints_neither_a_traceback_nor_the_text(tmp_path: Path) -> None:
+    repo, _ = _one_more_commit(tmp_path)
+    listing = tmp_path / "broken-list.txt"
+    listing.write_bytes(CANARY.encode() + b"\xff\n")  # not UTF-8
+    result = _command(repo, "tree", listing=listing)
+    assert result.returncode == 2  # an error, not "a listed word was found"
+    assert "Traceback" not in result.stderr
+    assert CANARY not in result.stderr

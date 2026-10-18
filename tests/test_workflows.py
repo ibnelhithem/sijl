@@ -1,6 +1,7 @@
 """The GitHub Actions workflows: every action pinned to a full commit SHA, the publish job the only
-one that can write, a release only from a tag push after its tests, and macOS runs on pull
-requests as well.
+one that can write, a release only from a tag push after its tests, macOS runs on pull requests
+as well, credentials and private words are looked for before anything is published, and no
+expression is pasted into a script.
 
 The files are read as text — PyYAML is not a dependency — so the job blocks are found by their
 two-space indent under `jobs:`, the layout both workflows use.
@@ -12,6 +13,7 @@ from pathlib import Path
 WORKFLOWS = Path(__file__).resolve().parents[1] / ".github" / "workflows"
 CI = (WORKFLOWS / "ci.yml").read_text()
 RELEASE = (WORKFLOWS / "release.yml").read_text()
+GUARD = (WORKFLOWS / "guard.yml").read_text() if (WORKFLOWS / "guard.yml").exists() else ""
 SCRIPTS = WORKFLOWS.parents[1] / "scripts"
 SECRET_SCAN = (SCRIPTS / "secret-scan.sh").read_text()
 SECRET_SCAN_REPORT = (
@@ -152,3 +154,88 @@ def test_a_finding_is_reported_by_its_place_never_by_its_content() -> None:
         "RuleID",
         "Commit",
     }
+
+
+def _scripts(text: str) -> list[str]:
+    """The text of every `run:` step: a one-line value, or the indented block under `run: |`."""
+    found: list[str] = []
+    lines = text.splitlines()
+    for number, line in enumerate(lines):
+        if not (match := re.fullmatch(r"(\s*)(?:- )?run: ?(.*)", line)):
+            continue
+        if match[2] not in ("|", ">", "|-", ">-"):
+            found.append(match[2])
+            continue
+        indent = len(match[1])
+        block = []
+        for following in lines[number + 1 :]:
+            if following.strip() and len(following) - len(following.lstrip()) <= indent:
+                break
+            block.append(following)
+        found.append("\n".join(block))
+    return found
+
+
+def test_no_expression_is_pasted_into_a_script() -> None:
+    # `${{ }}` inside `run:` is replaced before the shell starts: a pull request title such as
+    # `"; curl … $SECRET` would run as code. Values reach a script through `env:` only.
+    seen = 0
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        for script in _scripts(path.read_text()):
+            seen += 1
+            assert "${{" not in script, f"{path.name}: {script.strip().splitlines()[0]}"
+    assert seen >= 10
+
+
+def test_the_word_list_checks_pull_requests_their_edits_and_main() -> None:
+    top = top_level(GUARD)
+    assert "    types: [opened, synchronize, reopened, edited]" in top  # a title edit reruns it
+    assert "    branches: [main]" in top  # the backstop after a merge
+    assert "\npermissions:\n  contents: read\n" in top
+    assert "pull_request_target" not in GUARD  # it would run a pull request's code with secrets
+    assert "edited" not in CI  # every title edit would rerun the macOS job, and cancel it
+    job = jobs(GUARD)["word-list"]
+    assert not any(re.search(r": write\b", line) for line in job.splitlines())
+    assert "persist-credentials: false" in job
+    assert "timeout-minutes: 10" in job
+    for checked in ("tree", 'commits "$BASE..$HEAD"', 'commits "$BEFORE..$GITHUB_SHA"'):
+        assert f"guard {checked}" in job
+    assert 'guard pull-request "$GITHUB_EVENT_PATH"' in job
+    # A step's variables are printed in its public log: a listed word in the body would get a
+    # second copy there. The branch name, title and body are read from the event file instead.
+    for text in ("pull_request.title", "pull_request.body", "head_ref"):
+        assert text not in GUARD
+
+
+def test_a_push_to_main_is_never_cancelled_by_the_next_one() -> None:
+    # Each push checks only its own commits: a cancelled run would leave a merge unchecked.
+    assert "  group: guard-${{ github.event.pull_request.number || github.sha }}\n" in GUARD
+
+
+def test_forks_and_dependabot_skip_the_word_list_never_pass_it() -> None:
+    # Neither gets the Actions secret. A job-level condition shows the job as skipped; a step
+    # that passed without the list would look like a check that ran.
+    job = jobs(GUARD)["word-list"]
+    condition = job.split("    runs-on:", 1)[0]
+    assert "github.event.pull_request.head.repo.full_name == github.repository" in condition
+    assert "github.actor != 'dependabot[bot]'" in condition
+    assert "GUARD_LIST: ${{ secrets.PUBLICATION_GUARD_LIST }}" in job
+    assert 'if [ -z "$GUARD_LIST" ]; then' in job  # a run that should have it fails without it
+
+
+def test_the_release_scans_the_unpacked_files_before_they_are_uploaded() -> None:
+    build = jobs(RELEASE)["build"]
+    scan = build.index("run: sh scripts/secret-scan.sh dist dist")
+    assert build.index("uv build") < scan < build.index("uses: actions/upload-artifact@")
+    paths = top_level(RELEASE).split("  pull_request:", 1)[1]
+    for changed in ("scripts/secret-scan.sh", "scripts/secret-scan.tmpl", ".betterleaks.toml"):
+        assert f'      - "{changed}"' in paths  # a change to the scan reruns the dry run
+
+
+def test_the_history_and_the_built_files_are_scanned_with_this_repository_allowlist() -> None:
+    # A folder scan looks for its config inside the unpacked files, where there is none: the
+    # test fixtures' allowed values would fail it. One run line serves both scans.
+    code = "\n".join(_code(SECRET_SCAN))
+    assert "set -- git ." in code
+    assert 'set -- dir "$work/unpacked"' in code
+    assert '"$work/betterleaks" "$@" --config .betterleaks.toml' in code

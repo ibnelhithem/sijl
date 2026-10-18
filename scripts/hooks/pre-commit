@@ -1,0 +1,20 @@
+#!/bin/sh
+# Opt-in: `git config core.hooksPath scripts/hooks` (docs/dev/README.md). Skip once: --no-verify.
+#
+# Before a commit: Betterleaks scans the staged changes for credentials, with this repository's
+# allowlist (.betterleaks.toml, found in the top folder), redacted, naming only the file, line
+# and rule (scripts/secret-scan.tmpl). Validation stays off: it would send a found secret to
+# its provider. Without betterleaks on PATH it warns loudly and lets the commit go; CI scans
+# every pull request again, but by then the commit is public.
+set -u
+scripts=$(cd "$(dirname "$0")/.." && pwd)
+
+if ! command -v betterleaks >/dev/null 2>&1; then
+    printf 'pre-commit: WARNING: %s\n' >&2 \
+        "betterleaks is not on PATH: this commit was NOT scanned for credentials." \
+        "Install the version scripts/secret-scan.sh pins, or see docs/dev/README.md."
+    exit 0
+fi
+cd "$(git rev-parse --show-toplevel)" || exit 1
+exec betterleaks git --pre-commit --staged --no-banner --redact \
+    --report-format template --report-template "$scripts/secret-scan.tmpl" --report-path - .

@@ -1,0 +1,63 @@
+name: guard
+
+# The publication guard with its private word list (ADR 0003): the tree, every new commit (author,
+# committer, message, the files it adds or changes), the branch name, and the pull request's title
+# and body. On every pull request, again when its title or body is edited, and on every push to
+# main. Its own file: an edit must not rerun ci.yml's macOS job (ADR 0003, decision 5).
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A newer run of the same pull request replaces the older one. Each push to main gets a group
+# of its own: it checks only the commits of that push, so it must never be cancelled.
+concurrency:
+  group: guard-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  word-list:
+    # Forks and Dependabot get no Actions secrets, so their pull requests skip this job: it shows
+    # as skipped, never as passed. The push to main after the merge, and the release, check them.
+    if: >-
+      github.event_name == 'push' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false # no later step uses git against GitHub
+          fetch-depth: 0 # the pull request's base, or the commit main was at before the push
+      - name: No listed word in the tree, the new commits, or the pull request's text
+        # The log prints every variable below, except the secret. So the branch name, title and
+        # body are read from the event file instead: a listed word must not get a second public
+        # copy here. They are never pasted into the script either.
+        env:
+          GUARD_LIST: ${{ secrets.PUBLICATION_GUARD_LIST }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          BEFORE: ${{ github.event.before }}
+        # The runner's python3; the guard needs only the standard library. Never `set -x` here.
+        run: |
+          if [ -z "$GUARD_LIST" ]; then
+            echo "::error::the PUBLICATION_GUARD_LIST secret is not available: the word list was not checked"
+            exit 1
+          fi
+          list=$(mktemp)
+          printf '%s\n' "$GUARD_LIST" > "$list"
+          guard() { python3 scripts/publication_guard.py --list "$list" "$@"; }
+          status=0
+          guard tree || status=1
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            guard commits "$BASE..$HEAD" || status=1
+            guard pull-request "$GITHUB_EVENT_PATH" || status=1
+          else
+            guard commits "$BEFORE..$GITHUB_SHA" || status=1
+          fi
+          exit "$status"
