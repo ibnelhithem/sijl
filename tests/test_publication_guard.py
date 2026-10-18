@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
 import os
 import subprocess
 import sys
@@ -24,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.gitfactory import RepoBuilder, Who
+from tests.gitfactory import RepoBuilder, Who, identity_env
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "publication_guard.py"
@@ -201,6 +202,32 @@ def test_only_the_commits_asked_for_are_checked_and_a_deleted_file_is_not(tmp_pa
     )
 
 
+def test_every_file_a_commit_changes_is_read(tmp_path: Path) -> None:
+    # The files are read in one `git cat-file --batch`: each must start where the last ended.
+    files = {"a.md": "no newline at the end", "b.md": f"fine\n{CANARY}\n"}
+    repo, sha = _one_more_commit(tmp_path, files=files)
+    assert hits(commits(repo, ["HEAD~1..HEAD"]), FORBIDDEN) == [
+        f"commit {sha[:12]}, b.md:2: list entry 1"
+    ]
+
+
+def test_a_replacement_cannot_hide_the_commit_that_is_pushed(tmp_path: Path) -> None:
+    # `git replace` changes what `git log` shows, not what `git push` sends.
+    repo = RepoBuilder(tmp_path / "repo")
+    leaky = repo.commit(f"feat: {CANARY}", at=AT, who=PLAIN, files={"a.md": "fine\n"})
+    clean = repo.git(
+        "commit-tree",
+        f"{leaky}^{{tree}}",
+        "-m",
+        "feat: clean",
+        env=identity_env(PLAIN, AT, PLAIN, AT),
+    ).strip()
+    repo.git("replace", leaky, clean)
+    assert hits(commits(repo.path, ["HEAD"]), FORBIDDEN) == [
+        f"commit {leaky[:12]}, message:1: list entry 1"
+    ]
+
+
 def test_commits_already_on_the_remote_are_not_checked_again(tmp_path: Path) -> None:
     # The range the pre-push hook asks for: everything not yet on that remote's branches.
     repo = RepoBuilder(tmp_path / "repo")
@@ -266,3 +293,32 @@ def test_the_command_refuses_an_option_git_would_act_on(tmp_path: Path, canary_l
     result = _command(repo, "commits", "HEAD", "--output=out.txt", listing=canary_list)
     assert result.returncode == 2
     assert not (repo / "out.txt").exists()
+
+
+def test_the_command_reads_a_pull_requests_text_from_the_event_file(
+    tmp_path: Path, canary_list: Path
+) -> None:
+    repo, _ = _one_more_commit(tmp_path)
+    event = tmp_path / "event.json"
+    request = {"head": {"ref": f"fix/{CANARY}"}, "title": "A clean title", "body": None}
+    event.write_text(json.dumps({"pull_request": request}))
+    assert guard.pull_request(event)[2] == ("pull request body", "")  # an empty body is null
+    request["body"] = f"Summary\n\nthe {CANARY} case"
+    event.write_text(json.dumps({"pull_request": request}))
+    result = _command(repo, "pull-request", str(event), listing=canary_list)
+    assert result.returncode == 1
+    assert result.stdout.splitlines() == [
+        "branch name:1: list entry 1",
+        "pull request body:3: list entry 1",
+    ]
+    assert CANARY not in (result.stdout + result.stderr).lower()
+
+
+def test_a_failure_prints_neither_a_traceback_nor_the_text(tmp_path: Path) -> None:
+    repo, _ = _one_more_commit(tmp_path)
+    listing = tmp_path / "broken-list.txt"
+    listing.write_bytes(CANARY.encode() + b"\xff\n")  # not UTF-8
+    result = _command(repo, "tree", listing=listing)
+    assert result.returncode == 2  # an error, not "a listed word was found"
+    assert "Traceback" not in result.stderr
+    assert CANARY not in result.stderr

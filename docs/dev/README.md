@@ -64,7 +64,7 @@ listed word is rewritten out of the text it is in.
 | Layer | What it catches | When |
 |---|---|---|
 | `pre-commit` hook (opt-in) | Credentials in the staged changes (Betterleaks) | Before a commit, on your machine |
-| `pre-push` hook (opt-in) | Listed words in each new commit (author, committer, message, the files it adds or changes) and in the pushed ref's name | Before a push, on your machine |
+| `pre-push` hook (opt-in) | Listed words in each new commit (author, committer, message, the files it adds or changes), in the pushed ref's name, and in an annotated tag | Before a push, on your machine |
 | GitHub push protection | Provider tokens GitHub already knows | Before the push is accepted |
 | `secret-scan` job in `ci.yml` | Private-key blocks, passwords in URLs, other generic credentials, in the whole history | Every pull request and every push to `main` |
 | `guard.yml` (the word list) | Listed words in the tree, each new commit, the branch name, and the pull request's title and body | Every pull request from this repository, again when its title or body is edited, and every push to `main`; forks and Dependabot skip it |
@@ -89,7 +89,9 @@ git config --unset core.hooksPath                       # turn them off again
 
 `pre-commit` needs `betterleaks` on `PATH` (the version `scripts/secret-scan.sh` pins), and
 `pre-push` needs `python3` and the list. Without one of them, the hook warns loudly and lets the
-commit or push go. `--no-verify` skips the hooks once. The hooks only read.
+commit or push go. `--no-verify` skips the hooks once. The hooks only read. `pre-push` checks
+what the remote's tracking branches do not have yet; pushed to a URL instead of a remote's name,
+it checks the whole history of what is pushed.
 
 The choices for every layer are recorded in [0003](decisions/0003-secrets-and-private-data.md).
 

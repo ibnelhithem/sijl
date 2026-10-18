@@ -39,8 +39,9 @@ scripts/check.sh           # ruff (lint and format) and the whole test suite, ex
 - **No personal data in the repository:** examples use made-up names (`you@example.com`,
   `~/code`, `ABC-123`). `tests/test_publication_guard.py` checks every file against a private
   word list that is never in the repository: it reads the file `PUBLICATION_GUARD_LIST` names
-  (CI and the release workflow write it from a secret). Without that variable only its
-  self-tests run, with a canary word.
+  (the release workflow writes it from a secret). Without that variable only its self-tests
+  run, with a canary word. On pull requests, the `guard` workflow checks the same list with
+  `scripts/publication_guard.py`.
 - **Optional hooks:** `git config core.hooksPath scripts/hooks` scans each commit for
   credentials and checks each push against the word list, before anything is public. See
   [Secrets and private data](docs/dev/README.md#secrets-and-private-data).

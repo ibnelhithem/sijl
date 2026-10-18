@@ -226,3 +226,26 @@ def test_pre_push_reads_the_list_from_git_config_too(
     result = _push(repo, "HEAD:refs/heads/main", None)
     assert result.returncode != 0
     assert "message:1: list entry 1" in result.stdout + result.stderr
+
+
+def test_pre_push_stops_a_listed_word_in_an_annotated_tag(
+    tmp_path: Path, remote: Path, canary_list: Path
+) -> None:
+    repo = _repo(tmp_path, remote)
+    repo.git(
+        "tag", "-a", "v1.0.0", "-m", f"Release {CANARY}", env=identity_env(PLAIN, AT, PLAIN, AT)
+    )
+    result = _push(repo, "refs/tags/v1.0.0", canary_list)
+    assert result.returncode != 0
+    # object, type, tag, tagger, a blank line, then the message
+    assert "the pushed tag:6: list entry 1" in result.stdout + result.stderr
+
+
+def test_pre_push_reads_a_list_path_that_starts_with_a_tilde(tmp_path: Path, remote: Path) -> None:
+    (Path(os.environ["HOME"]) / "guard-list.txt").write_text(f"{CANARY}\n")  # a throwaway HOME
+    repo = _repo(tmp_path, remote)
+    repo.commit(f"feat: {CANARY}", at=AT, who=PLAIN)
+    env = _env(PUBLICATION_GUARD_LIST="~/guard-list.txt")
+    result = _git(repo.path, "push", "-q", "origin", "HEAD:refs/heads/main", env=env)
+    assert result.returncode != 0
+    assert "message:1: list entry 1" in result.stdout + result.stderr

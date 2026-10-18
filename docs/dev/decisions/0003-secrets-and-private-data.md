@@ -50,7 +50,9 @@ committed, was still found.
    `pull_request` type `edited`. The credential scan does not, so it is a job in `ci.yml` with
    no `if:`. Adding `edited` to `ci.yml` would rerun `check-macos` and, with
    `cancel-in-progress`, cancel a running check. An `if:` on `check-macos` is already forbidden
-   by test.
+   by test. The job reads the branch name, title and body from the event file GitHub writes,
+   not from variables: a step's variables are printed in its public log, so a listed word would
+   get a second copy there.
 6. **A pull request from a fork skips the word-list check** with a condition on that job. Forks
    receive no secrets. The same-repository branches still run the check. A skipped job does not
    block the merge. The backstop is the push to `main` and the release workflow, which have the
@@ -67,8 +69,8 @@ committed, was still found.
    push to `main` after the merge checks the list.
 10. **The hooks are opt-in, POSIX `sh`, and only read.** `git config core.hooksPath
     scripts/hooks` turns them on. `pre-commit` runs Betterleaks on the staged changes.
-    `pre-push` runs the guard on every commit the remote does not have yet and on each pushed
-    ref's name. The list is the file `PUBLICATION_GUARD_LIST` names, else `git config
+    `pre-push` runs the guard on every commit the remote does not have yet, on each pushed
+    ref's name, and on an annotated tag's tagger and message. The list is the file `PUBLICATION_GUARD_LIST` names, else `git config
     publicationGuard.list`. Without the scanner, the list or `python3`, a hook warns loudly
     and lets the commit or push go.
 11. **Neither CI check is a required status check.** A pull request's commits are public once
@@ -129,6 +131,12 @@ The credential scan (1–3) came first, in #32 and #34; the rest completes the i
 - Fork and Dependabot pull requests will not run the word-list check, and the skipped job does
   not block the merge. A maintainer can still merge one: the check then runs on the push to
   `main`, after the merge, and again in the release workflow.
+- A pull request from a branch in this repository runs its own copy of `guard.yml` and of the
+  guard, with the secret. Only collaborators can push such a branch.
+- Each push to `main` has a concurrency group of its own: it checks only that push's commits,
+  so a later merge must not cancel it.
+- The guard reads commits with replacement objects off (`GIT_NO_REPLACE_OBJECTS`): it checks
+  what a push sends, not what `git replace` shows.
 - The guard checks the whole text of every file a new commit adds or changes. A listed word
   already on the remote fails again whenever its file changes, until it is removed.
 - Do not click Disable under Secret Protection, and do not pass `--validation`.

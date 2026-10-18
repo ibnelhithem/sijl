@@ -25,6 +25,10 @@ public CI log leaks nothing:
                                                         the path and text of each file it adds
                                                         or changes
     publication_guard.py [--list FILE] text WHERE       standard input, reported as WHERE
+    publication_guard.py [--list FILE] pull-request EVENT
+                                                        a pull request's branch name, title and
+                                                        body, from the event file GitHub writes
+                                                        ($GITHUB_EVENT_PATH)
 
 Run it inside the repository to check. Exit status: 0 nothing found, 1 a listed word was found,
 2 no list, or a usage or git error.
@@ -32,6 +36,7 @@ Run it inside the repository to check. Exit status: 0 nothing found, 1 a listed 
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -49,7 +54,13 @@ _PIECE = re.compile(r"(?=(~?/[a-z0-9._-]+/))")
 _SEPARATED = re.compile(r"([-_.@+])")
 _SKIP_DIRS = {".git", ".venv", "dist", "build", "__pycache__", ".pytest_cache", ".ruff_cache"}
 
-USAGE = "usage: publication_guard.py [--list FILE] (tree | commits REV... | text WHERE)"
+USAGE = (
+    "usage: publication_guard.py [--list FILE]"
+    " (tree | commits REV... | text WHERE | pull-request EVENT)"
+)
+# git as this guard runs it: the objects as they will be pushed, never a replacement, and never
+# a fetch from a promisor remote.
+_GIT_ENV = {"GIT_NO_REPLACE_OBJECTS": "1", "GIT_NO_LAZY_FETCH": "1"}
 
 
 def read_list(path: Path) -> dict[str, int]:
@@ -102,6 +113,7 @@ def _git(root: Path, *args: str, stdin: bytes | None = None) -> bytes:
         input=stdin,
         stdin=None if stdin is not None else subprocess.DEVNULL,
         capture_output=True,
+        env={**os.environ, **_GIT_ENV},
         check=True,
     ).stdout
 
@@ -218,6 +230,17 @@ def _blobs(root: Path, ids: Sequence[str]) -> dict[str, bytes]:
     return contents
 
 
+def pull_request(event: Path) -> list[tuple[str, str]]:
+    """The branch name, title and body of the pull request in a GitHub event file. Read from the
+    file, not passed as variables: a step's variables are printed in its public log."""
+    request = json.loads(event.read_text(encoding="utf-8"))["pull_request"]
+    return [
+        ("branch name", request["head"]["ref"]),
+        ("pull request title", request["title"]),
+        ("pull request body", request["body"] or ""),  # null when it was left empty
+    ]
+
+
 def _load_list(given: str) -> dict[str, int]:
     """The list `--list` or PUBLICATION_GUARD_LIST names; SystemExit(2) saying why there is none."""
     if not given:
@@ -251,7 +274,7 @@ def main(argv: Sequence[str]) -> int:
     if not (
         (mode == "tree" and not rest)
         or (mode == "commits" and rest)
-        or (mode == "text" and len(rest) == 1)
+        or (mode in ("text", "pull-request") and len(rest) == 1)
     ):
         print(USAGE, file=sys.stderr)
         return 2
@@ -262,13 +285,19 @@ def main(argv: Sequence[str]) -> int:
             named = list(tree(root))
         elif mode == "commits":
             named = list(commits(root, [_revision(argument) for argument in rest]))
+        elif mode == "pull-request":
+            named = pull_request(Path(rest[0]))
         else:
             named = [(rest[0], sys.stdin.buffer.read().decode("utf-8", "replace"))]
     except SystemExit as stop:
         print(stop.code, file=sys.stderr)
         return 2
     except subprocess.CalledProcessError as failed:
-        print(f"publication guard: git failed: {failed.stderr.decode().strip()}", file=sys.stderr)
+        error = failed.stderr.decode("utf-8", "replace").strip()
+        print(f"publication guard: git failed: {error}", file=sys.stderr)
+        return 2
+    except Exception as failed:  # only its name: the message could quote the list or a text
+        print(f"publication guard: failed ({type(failed).__name__})", file=sys.stderr)
         return 2
     found = hits(named, forbidden)
     for line in found:

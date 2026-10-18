@@ -200,8 +200,16 @@ def test_the_word_list_checks_pull_requests_their_edits_and_main() -> None:
     assert "timeout-minutes: 10" in job
     for checked in ("tree", 'commits "$BASE..$HEAD"', 'commits "$BEFORE..$GITHUB_SHA"'):
         assert f"guard {checked}" in job
-    for text in ("branch name", "pull request title", "pull request body"):
-        assert f'guard text "{text}"' in job
+    assert 'guard pull-request "$GITHUB_EVENT_PATH"' in job
+    # A step's variables are printed in its public log: a listed word in the body would get a
+    # second copy there. The branch name, title and body are read from the event file instead.
+    for text in ("pull_request.title", "pull_request.body", "head_ref"):
+        assert text not in GUARD
+
+
+def test_a_push_to_main_is_never_cancelled_by_the_next_one() -> None:
+    # Each push checks only its own commits: a cancelled run would leave a merge unchecked.
+    assert "  group: guard-${{ github.event.pull_request.number || github.sha }}\n" in GUARD
 
 
 def test_forks_and_dependabot_skip_the_word_list_never_pass_it() -> None:
