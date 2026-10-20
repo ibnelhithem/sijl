@@ -51,8 +51,11 @@ discover → collect → normalize (collapse copies) → deliveries → squash �
 [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs it on Linux and macOS for every
 pull request and every push to `main`.
 [`.github/workflows/release.yml`](../../.github/workflows/release.yml) tests both systems before
-publishing; a pull-request dry run of that workflow stays Linux-only. The choice to run macOS on
-every pull request is recorded in
+publishing; a pull-request dry run of that workflow stays Linux-only. A tag build packages a
+README whose relative links point at that tag, then puts the short links back in the checkout.
+A dry run has no tag, so `README.md` stays as stored. Twine 7.0.0 `check --strict` runs on the
+wheel and the sdist before they are uploaded, and `scripts/release-check.sh` does the same on
+its temporary build. The choice to run macOS on every pull request is recorded in
 [0002](decisions/0002-macos-ci-on-every-pull-request.md).
 
 ## Secrets and private data

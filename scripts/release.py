@@ -5,6 +5,7 @@
     python3 scripts/release.py check-tag v1.2.3   fail unless the tag is exactly "v" + that version
     python3 scripts/release.py notes 1.2.3        print CHANGELOG.md's section for 1.2.3 (the
                                                   release notes); fail if it is missing or empty
+    python3 scripts/release.py readme v1.2.3     print the README PyPI shows for that tag
 
 pyproject.toml is the one place the version is written: the installed package reads it
 back from its own metadata (`sijl --version`), the release tag must repeat it, and
@@ -29,6 +30,8 @@ VERSION = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 # Keep a Changelog 1.1.0: "## [Unreleased]", "## [1.2.3] - 2026-10-20", then "### Added" etc.
 HEADING = re.compile(r"## \[(?P<name>[^\]]+)\](?: - (?P<date>\S+))?")
 LINK_REFERENCE = re.compile(r"\[(?P<name>[^\]]+)\]: \S+")
+# A Markdown link whose target is a path in this repository, not an absolute URL.
+RELATIVE_LINK = re.compile(r"\]\((?!https?://)([^)\s]+)\)")
 KINDS = ("Added", "Changed", "Deprecated", "Removed", "Fixed", "Security")
 
 
@@ -46,6 +49,17 @@ class Section:
 
 def read_version(pyproject: Path) -> str:
     return tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["version"]
+
+
+def readme_for_pypi(text: str, tag: str) -> str:
+    """The copy PyPI shows: each relative Markdown link points at this tag. Absolute links stay.
+    The README stored in the repository is not changed."""
+    prefix = f"https://github.com/ibnelhithem/sijl/blob/{tag}/"
+
+    def rewrite(match: re.Match[str]) -> str:
+        return f"]({prefix}{match.group(1)})"
+
+    return RELATIVE_LINK.sub(rewrite, text)
 
 
 def check_tag(tag: str, version: str) -> None:
@@ -176,6 +190,8 @@ def main(argv: list[str] | None = None) -> int:
     notes_parser = commands.add_parser("notes", help="print the version's CHANGELOG section")
     notes_parser.add_argument("version")
     notes_parser.add_argument("--changelog", type=Path, default=ROOT / "CHANGELOG.md")
+    readme_parser = commands.add_parser("readme", help="print the README PyPI shows for this tag")
+    readme_parser.add_argument("tag")
     args = parser.parse_args(argv)
 
     try:
@@ -183,6 +199,9 @@ def main(argv: list[str] | None = None) -> int:
             print(read_version(ROOT / "pyproject.toml"))
         elif args.command == "check-tag":
             check_tag(args.tag, read_version(ROOT / "pyproject.toml"))
+        elif args.command == "readme":
+            text = (ROOT / "README.md").read_text(encoding="utf-8")
+            sys.stdout.write(readme_for_pypi(text, args.tag))
         else:
             print(release_notes(args.changelog.read_text(encoding="utf-8"), args.version))
     except ReleaseError as exc:

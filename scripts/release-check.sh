@@ -33,10 +33,24 @@ if [ -n "$(git status --porcelain)" ]; then
 fi
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/sijl-release.XXXXXX")
-trap 'rm -rf "$work"' EXIT
+# A tag build packages the README whose links point at that tag, then puts the short links
+# back. One trap does both: a second trap would replace this cleanup.
+cleanup() {
+    if [ -n "${readme_copy:-}" ]; then
+        cp "$readme_copy" README.md
+    fi
+    rm -rf "$work"
+}
+trap cleanup EXIT
+if [ $# -eq 1 ]; then
+    readme_copy=$work/README.md
+    cp README.md "$readme_copy"
+    release readme "$1" > README.md
+fi
 # --no-sources: build exactly as anyone else would, ignoring uv-only [tool.uv.sources] overrides.
 uv build --quiet --no-sources --out-dir "$work/dist"
 for built in "$work"/dist/sijl-*; do echo "release-check: built $(basename "$built")"; done
+uv tool run --from twine==7.0.0 twine check --strict "$work"/dist/*
 scripts/smoke-test.sh "$work/dist" "$version"
 # The publication guard, on the tree and on exactly the files that would be published. Its word
 # list never lives in the repository: PUBLICATION_GUARD_LIST names the maintainer's own copy.

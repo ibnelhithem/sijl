@@ -239,3 +239,32 @@ def test_the_history_and_the_built_files_are_scanned_with_this_repository_allowl
     assert "set -- git ." in code
     assert 'set -- dir "$work/unpacked"' in code
     assert '"$work/betterleaks" "$@" --config .betterleaks.toml' in code
+
+
+def test_the_pypi_readme_is_rewritten_before_the_build() -> None:
+    """PyPI shows the README inside the built files. Those links are rewritten to the tag
+    before uv build reads README.md."""
+    build = jobs(RELEASE)["build"]
+    assert build.index("release.py readme") < build.index("uv build")
+
+
+def test_a_local_tag_build_rewrites_the_readme_before_uv_build() -> None:
+    """release-check.sh packages the same README as the workflow when a tag is given."""
+    script = (SCRIPTS / "release-check.sh").read_text()
+    code = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith("#"))
+    assert code.index('release readme "$1"') < code.index("uv build")
+
+
+def test_the_built_files_are_checked_with_twine_before_upload() -> None:
+    """The wheel and sdist must render before they can be uploaded."""
+    build = jobs(RELEASE)["build"]
+    check = build.index("twine==7.0.0 twine check --strict dist/*")
+    assert build.index("uv build") < check < build.index("uses: actions/upload-artifact@")
+
+
+def test_a_local_build_checks_the_files_with_twine() -> None:
+    """The build on your machine checks the same files the workflow checks."""
+    script = (SCRIPTS / "release-check.sh").read_text()
+    code = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith("#"))
+    check = code.index('twine==7.0.0 twine check --strict "$work"/dist/*')
+    assert code.index("uv build") < check

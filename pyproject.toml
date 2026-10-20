@@ -34,6 +34,8 @@ Homepage = "https://github.com/ibnelhithem/sijl"
 Documentation = "https://github.com/ibnelhithem/sijl/tree/main/docs"
 Changelog = "https://github.com/ibnelhithem/sijl/blob/main/CHANGELOG.md"
 Issues = "https://github.com/ibnelhithem/sijl/issues"
+Source = "https://github.com/ibnelhithem/sijl"
+"Release notes" = "https://github.com/ibnelhithem/sijl/releases"
 
 [project.scripts]
 sijl = "sijl.cli:app"

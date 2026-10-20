@@ -81,7 +81,19 @@ jobs:
             { echo "::error::$TAG is not on main: tag a commit that main contains"; exit 1; }
       - name: Build the wheel and sdist
         # --no-sources: build as anyone else would, ignoring uv-only [tool.uv.sources] overrides.
-        run: uv build --no-sources
+        # A tag build packages the README whose links point at that tag, then puts the
+        # repository's short links back. A dry run has no tag, so README.md stays as it is.
+        run: |
+          if [ -n "$TAG" ]; then
+            copy=$(mktemp)
+            cp README.md "$copy"
+            trap 'cp "$copy" README.md' EXIT
+            uv run --no-project python scripts/release.py readme "$TAG" > README.md
+          fi
+          uv build --no-sources
+      - name: The package page renders
+        run: uv tool run --from twine==7.0.0 twine check --strict dist/*
+
       - name: No credential in the files that will be published
         # The pinned scanner every pull request uses, on the unpacked wheel and sdist: once here,
         # on Linux, before the files go anywhere (ADR 0003, decision 7).
