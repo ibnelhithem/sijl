@@ -226,3 +226,20 @@ def test_the_package_names_its_author_by_github_identity_and_is_mit_licensed() -
     licence = (ROOT / "LICENSE").read_text()
     assert licence.startswith("MIT License\n")
     assert "Copyright (c) 2026 ibnelhithem" in licence
+
+
+def test_the_pypi_readme_points_at_the_release_tag() -> None:
+    """The copy PyPI shows uses full links to the tag. The README in the repository keeps
+    its short links."""
+    sample = "See [install](docs/install.md) and [uv](https://docs.astral.sh/uv/)."
+    page = release.readme_for_pypi(sample, "v1.0.0")
+    assert page == (
+        "See [install](https://github.com/ibnelhithem/sijl/blob/v1.0.0/docs/install.md)"
+        " and [uv](https://docs.astral.sh/uv/)."
+    )
+
+    source = (ROOT / "README.md").read_text()
+    assert "](docs/install.md)" in source
+    built = release.readme_for_pypi(source, "v1.0.0")
+    assert "](docs/install.md)" not in built
+    assert "https://github.com/ibnelhithem/sijl/blob/v1.0.0/docs/install.md" in built
