@@ -9,6 +9,10 @@ New entries go under **[Unreleased]**; a release moves them under the new versio
 
 ## [Unreleased]
 
+### Added
+
+- A version tag publishes the tested wheel and sdist to PyPI. The GitHub release is created only after PyPI is serving those same files.
+
 ## [1.0.0] - 2026-10-10
 
 The first public release of Sijl (Arabic سِجِلّ, "a record, a register"): your work, on the
