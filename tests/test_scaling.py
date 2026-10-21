@@ -4,18 +4,30 @@ per call, which a loaded machine breaks (a linear pattern measured 0.20 s agains
 while other test suites ran)."""
 
 import re
+import time
 
 from tests.scaling import growth_problem
 
 
 def test_a_quadratic_call_is_caught_at_small_sizes() -> None:
     quadratic = re.compile(r"a*b")  # search restarts at every "a" and walks to the end
-    problem = growth_problem(quadratic.search, lambda n: "a" * n, (1_000, 2_000, 4_000, 8_000))
+    # A size under 8_000 finishes under the 0.02 s floor, so it cannot be the judged step.
+    # 8_000 to 32_000 still finishes under the 2 s cap.
+    problem = growth_problem(quadratic.search, lambda n: "a" * n, (8_000, 16_000, 32_000))
     assert problem.startswith("grew ") and "x when its input doubled" in problem
 
 
 def test_a_linear_call_passes_however_slow_its_steps() -> None:
     assert growth_problem(lambda text: text.count("a"), lambda n: "ab" * n, (50_000, 100_000)) == ""
+
+
+def test_a_ratio_under_the_noise_floor_is_ignored() -> None:
+    """0.005 s then 0.030 s is a 6x jump, and the smaller time is under the 0.02 s floor."""
+
+    def pause(size: int) -> None:
+        time.sleep(0.005 if size == 1 else 0.030)
+
+    assert growth_problem(pause, lambda size: size, (1, 2)) == ""
 
 
 def test_a_call_over_the_cap_fails_whatever_its_growth() -> None:
