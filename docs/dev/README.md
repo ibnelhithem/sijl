@@ -55,8 +55,22 @@ publishing; a pull-request dry run of that workflow stays Linux-only. A tag buil
 README whose relative links point at that tag, then puts the short links back in the checkout.
 A dry run has no tag, so `README.md` stays as stored. Twine 7.0.0 `check --strict` runs on the
 wheel and the sdist before they are uploaded, and `scripts/release-check.sh` does the same on
-its temporary build. The choice to run macOS on every pull request is recorded in
-[0002](decisions/0002-macos-ci-on-every-pull-request.md).
+its temporary build. A tag push uploads those files to PyPI, checks that Linux and macOS see the
+same sha256, and only then creates the GitHub release. A manual run uploads to TestPyPI only
+when its checkbox is on. A pull request uploads nowhere. The choices are recorded in
+[0004](decisions/0004-publish-on-pypi.md). The choice to run macOS on every pull request is
+recorded in [0002](decisions/0002-macos-ci-on-every-pull-request.md).
+
+### When a release is wrong
+
+PyPI will not take the same file name again, even after a delete. Yank that version so a new
+install does not choose it, then release a new patch version: raise the version, move the
+changelog section, and tag that commit. Leave the old tag where it is. A yanked version can
+still be installed by an exact pin.
+
+If the upload failed before any file from that version reached PyPI, re-run the failed jobs.
+That reuses the tested files. Re-run every job only when nothing from that version is on PyPI.
+A second build is not known to be the same bytes.
 
 ## Secrets and private data
 

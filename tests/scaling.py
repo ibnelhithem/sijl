@@ -5,9 +5,9 @@ suites ran beside this one, and the same call took 0.15 s or 0.20 s. What tells 
 quadratic is not the time but its growth: when the input doubles, a linear call takes about
 twice as long, a quadratic one about four times. `growth_problem()` times the call on inputs of
 doubling sizes and flags a step that grew more than `RATIO` times — confirmed by the best of
-five runs at both sizes, so one slow moment of the machine never fails a test. Times under
-`FLOOR` are noise and never judged by their ratio; any time over `cap` fails outright (a
-quadratic call on 200 KB takes minutes, a linear one milliseconds).
+five runs at both sizes, so one slow moment of the machine never fails a test. A ratio is
+judged only when both times are above `FLOOR`; a smaller time under it is noise. Any time
+over `cap` fails outright (a quadratic call on 200 KB takes minutes, a linear one milliseconds).
 """
 
 from __future__ import annotations
@@ -44,14 +44,14 @@ def growth_problem[T](
     for index, size in enumerate(sizes):
         subject = make(size)
         now = took(call, subject)
-        grew = previous is not None and now > FLOOR and now > RATIO * previous
+        grew = previous is not None and previous > FLOOR and now > FLOOR and now > RATIO * previous
         if now > cap or grew:  # confirm before judging: the best of five, at both sizes
             now = best(call, subject)
             if previous is not None:
                 previous = best(call, make(sizes[index - 1]))
             if now > cap:
                 return f"took {now:.3f} s at size {size:,}: the cap is {cap} s"
-            if previous is not None and now > FLOOR and now > RATIO * previous:
+            if previous is not None and previous > FLOOR and now > FLOOR and now > RATIO * previous:
                 return (
                     f"grew {now / max(previous, 1e-9):.1f}x when its input doubled: "
                     f"{previous:.3f} s at size {sizes[index - 1]:,}, {now:.3f} s at {size:,}"

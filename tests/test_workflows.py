@@ -64,8 +64,17 @@ def test_every_action_is_pinned_to_a_commit_sha_with_its_version() -> None:
 def test_release_jobs_get_only_the_token_permissions_they_need() -> None:
     assert "\npermissions: {}\n" in top_level(RELEASE)  # nothing unless a job asks
     blocks = jobs(RELEASE)
-    assert set(blocks) == {"build", "test", "publish"}
+    assert set(blocks) == {
+        "build",
+        "test",
+        "publish",
+        "publish-pypi",
+        "publish-testpypi",
+        "verify-pypi",
+    }
     for name, block in blocks.items():
+        if name in {"publish-pypi", "publish-testpypi"}:
+            continue
         expected = ["contents: write"] if name == "publish" else ["contents: read"]
         assert re.findall(r"\b\w+: (?:read|write)\b", block) == expected, name
 
@@ -79,7 +88,7 @@ def test_only_a_tag_push_publishes_and_only_after_build_and_tests() -> None:
     blocks = jobs(RELEASE)
     publish = blocks["publish"]
     assert "    if: github.event_name == 'push' && github.ref_type == 'tag'" in publish
-    assert "    needs: [build, test]" in publish
+    assert "    needs: [build, test, verify-pypi]" in publish
     assert "gh release create" in publish
     assert "--verify-tag" in publish  # never lets gh create a tag of its own
     assert not any("gh release" in block for name, block in blocks.items() if name != "publish")
@@ -268,3 +277,48 @@ def test_a_local_build_checks_the_files_with_twine() -> None:
     code = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith("#"))
     check = code.index('twine==7.0.0 twine check --strict "$work"/dist/*')
     assert code.index("uv build") < check
+
+
+def test_only_the_pypi_job_may_ask_for_a_token() -> None:
+    """The job that uploads holds a short-lived PyPI token and runs no repository code."""
+    blocks = jobs(RELEASE)
+    assert "publish-pypi" in blocks
+    for name, block in blocks.items():
+        if name in {"publish-pypi", "publish-testpypi"}:
+            assert "id-token: write" in block
+            assert "actions/checkout@" not in block
+        else:
+            assert "id-token: write" not in block
+
+
+def test_the_github_release_waits_until_pypi_succeeded() -> None:
+    """A failed PyPI upload must not announce a version people cannot install."""
+    publish = jobs(RELEASE)["publish"]
+    assert "needs: [build, test, verify-pypi]" in publish
+
+
+def test_the_bytes_on_pypi_are_checked_before_the_github_release() -> None:
+    """The GitHub release waits until PyPI is serving the tested files."""
+    blocks = jobs(RELEASE)
+    assert "verify-pypi" in blocks
+    verify = blocks["verify-pypi"]
+    assert "needs: [publish-pypi]" in verify
+    assert "id-token: write" not in verify
+    publish = blocks["publish"]
+    assert "needs: [build, test, verify-pypi]" in publish
+
+
+def test_the_testpypi_rehearsal_is_a_manual_choice() -> None:
+    """TestPyPI runs only when a person turns the checkbox on. A tag push does not read it."""
+    header = top_level(RELEASE)
+    assert "testpypi:" in header
+    assert "type: boolean" in header
+    assert "default: false" in header
+    blocks = jobs(RELEASE)
+    assert "publish-testpypi" in blocks
+    job = blocks["publish-testpypi"]
+    assert "environment: testpypi" in job
+    assert "id-token: write" in job
+    assert "actions/checkout@" not in job
+    assert "inputs.testpypi" in job
+    assert "inputs.testpypi" not in blocks["publish-pypi"]
