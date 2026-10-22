@@ -33,6 +33,7 @@ from tests.gitfactory import (
     RepoBuilder,
     raw_commit,
     run_git,
+    stored_objects,
 )
 from tests.test_collect import RecordingGit
 from tests.test_deliveries import at, started
@@ -596,10 +597,10 @@ def test_lines_cost_one_git_call_per_repository_and_none_in_a_partial_clone(make
     repo.git("config", "uploadpack.allowfilter", "true")
     partial = tmp_path / "partial"
     run_git(tmp_path, "clone", "-q", "--filter=blob:none", f"file://{repo.path}", str(partial))
-    objects = sorted(str(p) for p in (partial / ".git" / "objects").rglob("*"))
+    objects = stored_objects(partial)
     git = RecordingGit()
     result = run(partial, git=git)
-    assert sorted(str(p) for p in (partial / ".git" / "objects").rglob("*")) == objects
+    assert stored_objects(partial) == objects
     assert not [c for c in git.calls if f"--format={NUMSTAT_FORMAT}" in c]
     assert [d.lines for d in result.repos[0].deliveries] == [None, None]
     assert result.squashes.lines_unread == 2 and result.squashes.promoted == 2

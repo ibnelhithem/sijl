@@ -111,6 +111,16 @@ def run_git(
     return result.stdout.decode()
 
 
+def stored_objects(repo: Path) -> list[str]:
+    """Object files under `repo`, without the files git rewrites while maintaining itself.
+
+    A missing blob fetched into a partial clone shows up as a loose object or a new pack.
+    ``maintenance.lock`` and a pack's ``.rev`` reverse index come and go on their own.
+    """
+    root = repo / ".git" / "objects"
+    return sorted(str(path) for path in root.rglob("*") if path.suffix not in {".lock", ".rev"})
+
+
 def identity_env(
     author: Who, author_date: str, committer: Who, committer_date: str
 ) -> dict[str, str]:
