@@ -45,7 +45,8 @@ trap cleanup EXIT
 if [ $# -eq 1 ]; then
     readme_copy=$work/README.md
     cp README.md "$readme_copy"
-    release readme "$1" > README.md
+    release readme "$1" > "$work/README.pypi.md"
+    cp "$work/README.pypi.md" README.md
 fi
 # --no-sources: build exactly as anyone else would, ignoring uv-only [tool.uv.sources] overrides.
 uv build --quiet --no-sources --out-dir "$work/dist"

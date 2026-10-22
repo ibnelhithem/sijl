@@ -95,7 +95,9 @@ jobs:
             copy=$(mktemp)
             cp README.md "$copy"
             trap 'cp "$copy" README.md' EXIT
-            uv run --no-project python scripts/release.py readme "$TAG" > README.md
+            rewritten=$(mktemp)
+            uv run --no-project python scripts/release.py readme "$TAG" > "$rewritten"
+            cp "$rewritten" README.md
           fi
           uv build --no-sources
       - name: The package page renders
