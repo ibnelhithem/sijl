@@ -42,8 +42,9 @@ PyPI keeps a file name forever, including after a delete. A GitHub release can b
 
 - After this change is merged, the maintainer still creates the PyPI and TestPyPI accounts with 2FA, a pending publisher on each (workflow `release.yml`, environments `pypi` and `testpypi`), and the two environments limited to `v*` tags. The jobs name those environments now, so they will not run until the environments exist.
 - `v1.0.0` already points at the first public release, and that commit does not contain this workflow. A tag push runs the workflow from the tagged commit, and the real upload runs only on a tag push. Publishing the already released 1.0.0 bytes is a separate step from cutting a tag on this branch. Ask before any tag.
+- The first upload was 1.0.1, not the 1.0.0 bytes. The tag `v1.0.0` points at a commit that does not contain this workflow, and it was not moved. 1.1.0 stays the version for the six later issues.
 - A rehearsal consumes that version's file names on TestPyPI.
 - The upload job publishes every file in the `dist` artifact. The build job is what puts the wheel and the sdist there.
 - A bad release is yanked, then replaced by a new patch version. The steps are in [the developer docs](../README.md#when-a-release-is-wrong).
-- `docs/install.md` still says Sijl is not on PyPI. It changes after a real upload.
+- The README install section, `docs/install.md` and `SECURITY.md` lead with `uv tool install sijl`. That text ships in 1.0.2. The 1.0.1 page on PyPI keeps the git install command it was built with.
 - This change touches a release and an OIDC token, so it needs an independent review before it is merged. A security finding stops the merge.
