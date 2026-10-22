@@ -57,7 +57,8 @@ publishing anything (without the list it warns loudly and skips that check). Pus
 version) makes the release workflow build and test the files and upload them to PyPI. Linux and
 macOS then check that PyPI serves the same sha256 and that the version installs from PyPI, and only
 then is the GitHub release published. The workflow refuses to publish unless the repository
-has the `PUBLICATION_GUARD_LIST` secret (the list's content).
+has the `PUBLICATION_GUARD_LIST` secret (the list's content). The one-time PyPI setup is in
+[the developer docs](docs/dev/README.md#setting-up-pypi-publishing-once).
 
 ## Licence
 

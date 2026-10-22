@@ -62,6 +62,32 @@ pull request uploads nowhere. The choices are recorded in
 [0004](decisions/0004-publish-on-pypi.md). The choice to run macOS on every pull request is
 recorded in [0002](decisions/0002-macos-ci-on-every-pull-request.md).
 
+### Setting up PyPI publishing (once)
+
+Done for 1.0.1. Repeat these steps only if a site, the workflow file or an environment changes.
+
+1. **Accounts.** One account on [PyPI](https://pypi.org) and one on
+   [TestPyPI](https://test.pypi.org): separate sites, separate accounts, each with two-factor
+   authentication. The account name is shown publicly as the project's owner, so use the same
+   public identity as on GitHub.
+2. **Trusted publishers.** Before the first upload, add a *pending publisher* under Account
+   settings → Publishing (GitHub tab): project `sijl`, owner `ibnelhithem`, repository `sijl`,
+   workflow `release.yml`, environment `pypi`. Do the same on TestPyPI with environment
+   `testpypi`. A pending publisher does not reserve the name. The first upload creates the
+   project, and the publisher then appears under the project's Publishing settings. Renaming
+   `release.yml` or an environment stops publishing until the publisher is changed to match.
+3. **GitHub environments** (Settings → Environments). `pypi`: deployment rule "Selected
+   branches and tags", tag pattern `v*` only. `testpypi`: tag pattern `v*` and branch `main`.
+   Neither has a required reviewer or a secret ([0004](decisions/0004-publish-on-pypi.md),
+   decision 4). No token is stored anywhere: each upload gets a short-lived one for that job.
+4. **Rehearsal.** Actions → release → Run workflow on `main`, with `testpypi` ticked. It
+   uploads that build to TestPyPI only and installs nothing from there. TestPyPI never takes the
+   same file name twice, so each version can be rehearsed once.
+5. **A release.** Raise the version, move the changelog section, merge, then tag that commit
+   on `main` and push only the tag (see
+   [CONTRIBUTING.md](../../CONTRIBUTING.md#releasing-maintainers)). On PyPI, both files then
+   show an attestation that names `release.yml` and the `pypi` environment.
+
 ### When a release is wrong
 
 PyPI will not take the same file name again, even after a delete. Yank that version so a new
