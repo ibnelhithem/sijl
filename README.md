@@ -55,14 +55,23 @@ merged, and you merged 1 for colleagues (see *Delivered*).
 ## Install
 
 ```bash
-uv tool install git+https://github.com/ibnelhithem/sijl@v1.0.0
-sijl --version                    # sijl 1.0.0
+uv tool install sijl
+sijl --version                    # sijl 1.0.2
 ```
 
 If your shell says `sijl: command not found`, run `uv tool update-shell` once and open a new
 terminal.
 
-- **Upgrade:** run the install command again with the newer version (`…@v1.1.0`).
+- **Upgrade:** `uv tool upgrade sijl` moves you to the newest release; your config file is not
+  touched.
+- **One exact version:** `uv tool install "sijl==1.0.2"`. Keep the quotes: a range such as
+  `"sijl>=1.0.2"` needs them, or the shell reads `>` as a redirect. To move on from a pinned
+  version, install the next one you choose the same way.
+- **From a git tag:** `uv tool install git+https://github.com/ibnelhithem/sijl@v1.0.2`.
+- **With pip:** `pip install sijl` works too, but only inside a virtual environment.
+  `uv tool install` gives Sijl its own libraries, apart from your other Python tools.
+- **A command, not a library:** the `sijl` package on PyPI is the `sijl` command. The `sijl.*`
+  modules are internal and can change in any release.
 - **Uninstall:** `uv tool uninstall sijl` (your config file and saved reports stay; delete them
   yourself if you want them gone).
 
@@ -84,7 +93,7 @@ More, including installing from a downloaded wheel: [docs/install.md](docs/insta
    emails = ["you@example.com"]    # every address you commit with
 
    [scan]
-   roots = ["~/code"]              # folders that hold your repositories
+   roots = ["~/code", "~/work"]    # one entry for each folder of repositories
 
    [window]
    last = "6m"                     # or quarter = "2026Q3", half = "2026H1", year = 2026
@@ -124,8 +133,8 @@ More, including installing from a downloaded wheel: [docs/install.md](docs/insta
 Both tiers ask about the same evidence: your period's commits, merge requests, pull requests
 and tickets, each with an id the answer can cite.
 
-**Tier 1 — free, nothing sent by Sijl.** Write the digest and give it to Claude Code (or attach
-it in any AI chat you use):
+**Tier 1 — free, nothing sent by Sijl.** Write the digest and give it to Claude Code, or attach
+it in ChatGPT, Gemini, or any other AI chat:
 
 ```bash
 sijl digest --with-prompt --out digest.txt

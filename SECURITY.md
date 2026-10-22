@@ -14,8 +14,9 @@ best.
 
 ## Supported versions
 
-Security fixes go into the latest release. Upgrade with
-`uv tool install git+https://github.com/ibnelhithem/sijl@vX.Y.Z` (the newest tag).
+Security fixes go into the latest release. Upgrade with `uv tool upgrade sijl`. A pin
+(`"sijl==…"`) or an install from a git tag stays on that version until you install the
+newest release the same way you installed it ([docs/install.md](docs/install.md)).
 
 ## What Sijl sends, and where
 

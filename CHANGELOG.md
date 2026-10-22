@@ -9,6 +9,12 @@ New entries go under **[Unreleased]**; a release moves them under the new versio
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-10-22
+
+### Changed
+
+- Sijl is installed from PyPI with `uv tool install sijl`. `uv tool upgrade sijl` moves to a later release, and a pin or a git tag still installs one exact version.
+
 ## [1.0.1] - 2026-10-22
 
 ### Added
@@ -109,6 +115,7 @@ record.
 - **`sijl report --help`** says what a report needs (your emails, a folder, a period — unless
   the config file sets them) and shows an example.
 
-[Unreleased]: https://github.com/ibnelhithem/sijl/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/ibnelhithem/sijl/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/ibnelhithem/sijl/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/ibnelhithem/sijl/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/ibnelhithem/sijl/releases/tag/v1.0.0
