@@ -23,6 +23,8 @@ SECRET_SCAN_REPORT = (
 USES = re.compile(r"\s*(?:- )?uses: (?P<action>\S+)(?P<rest>.*)")
 PINNED = re.compile(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}")
 VERSION_COMMENT = re.compile(r" # v\d+\.\d+\.\d+")
+# A token permission however it is written: `contents: write`, `contents:  write`, `"write"`.
+PERMISSION = re.compile(r"(?<![\w-])([\w-]+):\s+[\"']?(read|write)\b")
 
 
 def _code(text: str) -> list[str]:
@@ -74,9 +76,17 @@ def test_release_jobs_get_only_the_token_permissions_they_need() -> None:
     }
     for name, block in blocks.items():
         if name in {"publish-pypi", "publish-testpypi"}:
-            continue
-        expected = ["contents: write"] if name == "publish" else ["contents: read"]
-        assert re.findall(r"\b\w+: (?:read|write)\b", block) == expected, name
+            expected = [("id-token", "write")]  # the upload token and nothing else
+        elif name == "publish":
+            expected = [("contents", "write")]
+        else:
+            expected = [("contents", "read")]
+        assert PERMISSION.findall(block) == expected, name
+
+
+def test_the_permission_pattern_sees_every_spelling() -> None:
+    for line in ("contents: write", "contents:  write", 'contents: "write"', "contents: 'write'"):
+        assert PERMISSION.findall(f"    {line}") == [("contents", "write")], line
 
 
 def test_ci_only_reads() -> None:
@@ -322,3 +332,10 @@ def test_the_testpypi_rehearsal_is_a_manual_choice() -> None:
     assert "actions/checkout@" not in job
     assert "inputs.testpypi" in job
     assert "inputs.testpypi" not in blocks["publish-pypi"]
+
+
+def test_no_release_step_may_fail_quietly() -> None:
+    """`continue-on-error`, `always()` or `cancelled()` would let a failed check go on to the
+    upload or the GitHub release."""
+    for escape in ("continue-on-error", "always()", "cancelled()"):
+        assert escape not in RELEASE, escape
