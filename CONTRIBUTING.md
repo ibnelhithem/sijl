@@ -54,8 +54,10 @@ Keep pull requests small and focused; a short description of what changes and wh
 sdist, smoke-tests both and runs the publication guard on the tree and on them, without
 publishing anything (without the list it warns loudly and skips that check). Pushing the tag
 `vX.Y.Z` (equal to the version in `pyproject.toml`, with a `CHANGELOG.md` section of that
-version) makes the release workflow build, test and publish the GitHub release; it refuses to
-publish unless the repository has the `PUBLICATION_GUARD_LIST` secret (the list's content).
+version) makes the release workflow build and test the files and upload them to PyPI. Linux and
+macOS then check that PyPI serves the same sha256 and that the version installs from PyPI, and only
+then is the GitHub release published. The workflow refuses to publish unless the repository
+has the `PUBLICATION_GUARD_LIST` secret (the list's content).
 
 ## Licence
 

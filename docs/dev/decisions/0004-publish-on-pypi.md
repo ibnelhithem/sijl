@@ -3,6 +3,7 @@
 **Status:** accepted
 **Date:** 2026-10-21
 **Issue:** #29
+**Amended:** 2026-10-22 (#40): decisions 3 and 5. The check also installs from PyPI, and a passing PyPI error is waited out.
 
 ## Context
 
@@ -14,9 +15,9 @@ PyPI keeps a file name forever, including after a delete. A GitHub release can b
 
 1. **The first upload is the existing 1.0.0.** The six later issues ship as 1.1.0. The version is not raised for this change, and today's `main` is not tagged `v1.0.0`.
 2. **`uv` builds. The PyPA action uploads.** The job uses `pypa/gh-action-pypi-publish` pinned to commit `dc37677b2e1c63e2034f94d8a5b11f265b73ba33` (`v1.14.2`). It does not check out the repository. There is no long-lived PyPI token. Attestations stay on, which is the action's default.
-3. **PyPI, then the check, then GitHub.** The order is build, test, upload, sha256 check, GitHub release. A failed upload must not announce a version that `uv tool install` cannot fetch.
+3. **PyPI, then the check, then GitHub.** The order is build, test, upload, sha256 check, install from PyPI, GitHub release. A failed upload must not announce a version that `uv tool install` cannot fetch.
 4. **The tag rule is the gate.** No required reviewer. The `pypi` and `testpypi` environments are limited to `v*` tags. That limit is a GitHub setting, made after this workflow exists.
-5. **The check compares sha256 before any install.** Linux and macOS poll every 15 seconds for at most 5 minutes. A missing version keeps polling until that deadline. A hash mismatch stops immediately. The log names the version and says either "not on PyPI yet" or "sha256 does not match". It does not print file contents. The job timeout is 10 minutes.
+5. **The check compares sha256, then installs.** Linux and macOS ask PyPI every 15 seconds for at most 5 minutes (`scripts/release.py verify-pypi`). A missing version, a 429 or 5xx answer, a network error and an answer cut short keep it asking until that deadline. A hash mismatch, a file under that version that was not tested, or any other answer stops it at once. The log names the version and says "not on PyPI yet", what PyPI answered, "could not be reached", or "sha256 does not match". It does not print file contents. Only after the match does each system install `sijl==X.Y.Z` from pypi.org, with no cache, no uv config file and no index from the environment, and run the smoke test on it (`scripts/smoke-test.sh --pypi`). The job timeout is 15 minutes.
 6. **The rehearsal is a separate manual run.** The `testpypi` checkbox defaults to off and uploads to TestPyPI only (`https://test.pypi.org/legacy/`). A pull request uploads nowhere. A tag push ignores the checkbox. The rehearsal does not install, so dependencies are not taken from TestPyPI. TestPyPI never accepts the same file name twice, so a rehearsal of a version uses that name up there only.
 7. **The packaged README points at the tag. The sidebar does not.** Relative links in the README inside the wheel and sdist become `https://github.com/ibnelhithem/sijl/blob/<tag>/...`. The README in git keeps the short links. Absolute `http` and `https` links stay. Source, Release notes and the other `[project.urls]` entries stay as written in `pyproject.toml`.
 8. **A failed run continues with Re-run failed jobs.** That reuses the tested `dist` artifact. The upload skips a file already on PyPI. Re-run all jobs only when nothing from that version has reached PyPI. No new tag. `uv build` was not shown to be byte-for-byte reproducible.
@@ -44,6 +45,7 @@ PyPI keeps a file name forever, including after a delete. A GitHub release can b
 - `v1.0.0` already points at the first public release, and that commit does not contain this workflow. A tag push runs the workflow from the tagged commit, and the real upload runs only on a tag push. Publishing the already released 1.0.0 bytes is a separate step from cutting a tag on this branch. Ask before any tag.
 - The first upload was 1.0.1, not the 1.0.0 bytes. The tag `v1.0.0` points at a commit that does not contain this workflow, and it was not moved. 1.1.0 stays the version for the six later issues.
 - A rehearsal consumes that version's file names on TestPyPI.
+- The check and the install run only on a tag push, so CI cannot run them before a release. #40 ran both by hand against the 1.0.2 files on PyPI. If the check fails after a good upload, the version is on PyPI with no GitHub release: re-run the failed jobs, or, when the check itself is wrong, create the GitHub release by hand from that run's `dist` artifact. The install reads PyPI's simple index, which can lag a moment behind the JSON page the check reads. An install that finds no such version is not retried; re-run the failed jobs.
 - The upload job publishes every file in the `dist` artifact. The build job is what puts the wheel and the sdist there.
 - A bad release is yanked, then replaced by a new patch version. The steps are in [the developer docs](../README.md#when-a-release-is-wrong).
 - The README install section, `docs/install.md` and `SECURITY.md` lead with `uv tool install sijl`. That text ships in 1.0.2. The 1.0.1 page on PyPI keeps the git install command it was built with.

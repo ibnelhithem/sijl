@@ -2,10 +2,14 @@
 package, the release tag and CHANGELOG.md all repeat — checked before anything is published
 ."""
 
+import hashlib
+import http.client
 import importlib.util
+import io
 import subprocess
 import sys
 import tomllib
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -215,6 +219,48 @@ def test_the_smoke_test_accepts_a_relative_dist_folder(tmp_path: Path) -> None:
     assert wheel == str(dist / "sijl-9.9.9-py3-none-any.whl")
 
 
+@pytest.mark.allow_subprocess  # the script and a fake `uv`, both local (tests/conftest.py)
+def test_the_smoke_test_can_install_the_version_from_pypi(tmp_path: Path) -> None:
+    """After an upload the release installs `sijl==VERSION` from pypi.org itself: no cache, no
+    uv config file and no other index can stand in for what PyPI serves."""
+    calls = tmp_path / "uv-calls.txt"
+    fake = tmp_path / "bin"
+    fake.mkdir()
+    seen = tmp_path / "uv-env.txt"
+    (fake / "uv").write_text(
+        f'#!/bin/sh\necho "$@" >> {calls}\n'
+        f'echo "${{UV_INDEX-}}${{UV_INDEX_URL-}}${{UV_EXTRA_INDEX_URL-}}${{UV_FIND_LINKS-}}'
+        f'${{UV_CONFIG_FILE-}}"'
+        f" >> {seen}\nexit 1\n"
+    )  # record the arguments and any index variable, then fail
+    (fake / "uv").chmod(0o755)
+    elsewhere = "https://mirror.example.test/simple"
+    env = {"PATH": f"{fake}:/usr/bin:/bin", "HOME": str(tmp_path)}
+    for name in (
+        "UV_INDEX",
+        "UV_INDEX_URL",
+        "UV_EXTRA_INDEX_URL",
+        "UV_FIND_LINKS",
+        "UV_CONFIG_FILE",
+    ):
+        env[name] = elsewhere
+    result = subprocess.run(
+        [str(ROOT / "scripts" / "smoke-test.sh"), "--pypi", "9.9.9"],
+        cwd=tmp_path, env=env, capture_output=True, text=True, check=False,
+    )  # fmt: skip
+    assert result.returncode == 1  # the fake uv fails the install, as intended
+    assert "pypi: uv tool install failed" in result.stderr
+    installed = calls.read_text().split()
+    assert installed[:2] == ["tool", "install"]
+    assert installed[-1] == "sijl==9.9.9"
+    for option in ("--no-cache", "--no-config"):
+        assert option in installed
+    assert installed[installed.index("--default-index") + 1] == "https://pypi.org/simple"
+    for option in ("--index", "--extra-index-url", "--find-links"):
+        assert option not in installed
+    assert seen.read_text() == "\n"  # no index from the environment either
+
+
 def test_the_package_names_its_author_by_github_identity_and_is_mit_licensed() -> None:
     """The published metadata carries the author's GitHub identity — never a work address — and
     the MIT licence, whose text ships as LICENSE."""
@@ -243,3 +289,191 @@ def test_the_pypi_readme_points_at_the_release_tag() -> None:
     built = release.readme_for_pypi(source, "v1.0.0")
     assert "](docs/install.md)" not in built
     assert "https://github.com/ibnelhithem/sijl/blob/v1.0.0/docs/install.md" in built
+
+
+WHEEL = "sijl-9.9.9-py3-none-any.whl"
+SDIST = "sijl-9.9.9.tar.gz"
+
+
+def _dist(tmp_path: Path) -> tuple[Path, dict[str, str]]:
+    """A dist folder with a wheel and an sdist, and the sha256 of each."""
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    digests = {}
+    for name in (WHEEL, SDIST):
+        (dist / name).write_bytes(name.encode())
+        digests[name] = hashlib.sha256(name.encode()).hexdigest()
+    return dist, digests
+
+
+def _page(digests: dict[str, str]) -> dict:
+    """The part of PyPI's /pypi/sijl/<version>/json answer that lists the files."""
+    return {"urls": [{"filename": n, "digests": {"sha256": d}} for n, d in digests.items()]}
+
+
+def _http(code: int) -> urllib.error.HTTPError:
+    return urllib.error.HTTPError("https://pypi.org/pypi/sijl/9.9.9/json", code, "", {}, None)
+
+
+class FakePyPI:
+    """Gives one answer per request (a page, or an exception to raise); the last answer repeats.
+    Time moves only when the check sleeps, so a test never waits."""
+
+    def __init__(self, *answers: object) -> None:
+        self.answers = list(answers)
+        self.urls: list[str] = []
+        self.slept: list[float] = []
+        self.lines: list[str] = []
+        self.now = 0.0
+
+    def fetch(self, url: str) -> dict:
+        self.urls.append(url)
+        answer = self.answers.pop(0) if len(self.answers) > 1 else self.answers[0]
+        if isinstance(answer, BaseException):
+            raise answer
+        return answer
+
+    def sleep(self, seconds: float) -> None:
+        self.slept.append(seconds)
+        self.now += seconds
+
+    def verify(self, version: str, dist: Path) -> None:
+        release.verify_pypi(
+            version, dist, fetch=self.fetch, sleep=self.sleep, clock=lambda: self.now,
+            log=self.lines.append,
+        )  # fmt: skip
+
+
+def test_verify_pypi_passes_when_pypi_serves_the_tested_files(tmp_path: Path) -> None:
+    dist, digests = _dist(tmp_path)
+    pypi = FakePyPI(_page(digests))
+    pypi.verify("9.9.9", dist)
+    assert pypi.urls == ["https://pypi.org/pypi/sijl/9.9.9/json"]
+    assert pypi.slept == []
+    assert pypi.lines == ["9.9.9: PyPI serves both files with the tested sha256"]
+
+
+@pytest.mark.parametrize(
+    ("first", "said"),
+    [
+        (_http(404), "not on PyPI yet"),
+        (_http(429), "PyPI answered 429"),
+        (_http(503), "PyPI answered 503"),
+        (_http(501), "PyPI answered 501"),
+        (http.client.IncompleteRead(b"{"), "PyPI could not be reached"),
+        (urllib.error.URLError("timed out"), "PyPI could not be reached"),
+        (TimeoutError(), "PyPI could not be reached"),
+        ({"urls": []}, "not on PyPI yet"),
+    ],
+)
+def test_verify_pypi_waits_while_the_version_is_missing_or_pypi_is_unwell(
+    tmp_path: Path, first: object, said: str
+) -> None:
+    """A new version can take a moment to appear, and PyPI can fail for a moment: both are
+    waited out."""
+    dist, digests = _dist(tmp_path)
+    pypi = FakePyPI(first, _page(digests))
+    pypi.verify("9.9.9", dist)
+    assert pypi.slept == [15]
+    assert said in pypi.lines[0]
+    assert pypi.lines[-1] == "9.9.9: PyPI serves both files with the tested sha256"
+
+
+def test_verify_pypi_waits_until_both_files_are_listed(tmp_path: Path) -> None:
+    dist, digests = _dist(tmp_path)
+    pypi = FakePyPI(_page({WHEEL: digests[WHEEL]}), _page(digests))
+    pypi.verify("9.9.9", dist)
+    assert pypi.slept == [15]
+    assert SDIST in pypi.lines[0]
+
+
+def test_verify_pypi_stops_at_once_when_a_file_differs(tmp_path: Path) -> None:
+    """Different bytes under a published name can never be fixed by waiting."""
+    dist, digests = _dist(tmp_path)
+    pypi = FakePyPI(_page({**digests, SDIST: "0" * 64}))
+    with pytest.raises(release.ReleaseError, match=f"sha256 does not match: {SDIST}"):
+        pypi.verify("9.9.9", dist)
+    assert pypi.slept == []
+
+
+def test_verify_pypi_stops_at_once_when_pypi_lists_a_file_that_was_not_tested(
+    tmp_path: Path,
+) -> None:
+    """An installer could pick a file nobody tested, so any other file under the version stops
+    the release."""
+    dist, digests = _dist(tmp_path)
+    other = "sijl-9.9.9-py3-none-macosx_11_0_arm64.whl"
+    pypi = FakePyPI(_page({**digests, other: "0" * 64}))
+    with pytest.raises(release.ReleaseError, match=f"not tested: {other}"):
+        pypi.verify("9.9.9", dist)
+    assert pypi.slept == []
+
+
+def test_verify_pypi_stops_at_once_on_an_answer_without_a_file_list(tmp_path: Path) -> None:
+    dist, _ = _dist(tmp_path)
+    pypi = FakePyPI({"info": {}})
+    with pytest.raises(release.ReleaseError, match="no file list"):
+        pypi.verify("9.9.9", dist)
+    assert pypi.slept == []
+
+
+def test_verify_pypi_prints_each_line_at_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """In CI the output is a pipe: an unflushed line would show only when the job ends."""
+
+    class Pipe(io.StringIO):
+        flushes = 0
+
+        def flush(self) -> None:
+            self.flushes += 1
+            super().flush()
+
+    dist, digests = _dist(tmp_path)
+    pipe = Pipe()
+    monkeypatch.setattr(sys, "stdout", pipe)
+    release.verify_pypi("9.9.9", dist, fetch=lambda url: _page(digests))
+    assert pipe.getvalue() == "9.9.9: PyPI serves both files with the tested sha256\n"
+    assert pipe.flushes >= 1
+
+
+def test_verify_pypi_stops_at_once_on_another_answer(tmp_path: Path) -> None:
+    dist, _ = _dist(tmp_path)
+    pypi = FakePyPI(_http(403))
+    with pytest.raises(release.ReleaseError, match="PyPI answered 403"):
+        pypi.verify("9.9.9", dist)
+    assert pypi.slept == []
+
+
+def test_verify_pypi_gives_up_after_five_minutes(tmp_path: Path) -> None:
+    dist, _ = _dist(tmp_path)
+    pypi = FakePyPI(_http(404))
+    with pytest.raises(release.ReleaseError, match="not on PyPI after 5 minutes"):
+        pypi.verify("9.9.9", dist)
+    assert sum(pypi.slept) == 300
+    assert len(pypi.urls) == 21  # at 0 s, every 15 s, and once more at the deadline
+
+
+@pytest.mark.parametrize(
+    "names",
+    [(WHEEL,), (SDIST,), (WHEEL, SDIST, "sijl-9.9.9-py3-none-any.whl.sig")],
+)
+def test_verify_pypi_needs_exactly_the_wheel_and_the_sdist(
+    tmp_path: Path, names: tuple[str, ...]
+) -> None:
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    for name in names:
+        (dist / name).write_text("")
+    pypi = FakePyPI(_http(404))
+    with pytest.raises(release.ReleaseError, match="exactly"):
+        pypi.verify("9.9.9", dist)
+    assert pypi.urls == []  # nothing is asked before the folder is right
+
+
+def test_the_verify_pypi_command_rejects_a_bad_version_before_asking_pypi(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dist, _ = _dist(tmp_path)
+    assert release.main(["verify-pypi", "9.9", str(dist)]) == 1
+    assert "'9.9' is not a plain X.Y.Z release number" in capsys.readouterr().err
