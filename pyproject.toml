@@ -1,6 +1,6 @@
 [project]
 name = "sijl"
-version = "1.0.0"
+version = "1.0.1"
 description = "Your work, on the record: summarise your own git work for a review period, straight from your local repositories."
 readme = "README.md"
 authors = [

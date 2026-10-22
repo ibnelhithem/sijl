@@ -22,6 +22,7 @@ from tests.gitfactory import (
     RepoBuilder,
     raw_commit,
     run_git,
+    stored_objects,
 )
 
 MINE = IdentitySet.from_emails([ME.email])
@@ -263,9 +264,9 @@ def test_patch_id_never_fetches_into_a_partial_clone(make_repo, tmp_path) -> Non
     partial = tmp_path / "partial"
     run_git(tmp_path, "clone", "-q", "--filter=blob:none", f"file://{origin.path}", str(partial))
     RepoBuilder.existing(partial).amend(at=at(6))  # a local copy of the pushed commit
-    objects = sorted(str(p) for p in (partial / ".git" / "objects").rglob("*"))
+    objects = stored_objects(partial)
     result = run(partial, dedupe="patch-id")
-    assert sorted(str(p) for p in (partial / ".git" / "objects").rglob("*")) == objects
+    assert stored_objects(partial) == objects
     assert result.copies_collapsed == 1  # matched by the key alone
     assert result.patch_unread == 2
 
