@@ -9,6 +9,8 @@ New entries go under **[Unreleased]**; a release moves them under the new versio
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-22
+
 ### Added
 
 - A version tag publishes the tested wheel and sdist to PyPI. The GitHub release is created only after PyPI is serving those same files.
@@ -107,5 +109,6 @@ record.
 - **`sijl report --help`** says what a report needs (your emails, a folder, a period — unless
   the config file sets them) and shows an example.
 
-[Unreleased]: https://github.com/ibnelhithem/sijl/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/ibnelhithem/sijl/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/ibnelhithem/sijl/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/ibnelhithem/sijl/releases/tag/v1.0.0
