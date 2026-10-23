@@ -55,11 +55,38 @@ publishing; a pull-request dry run of that workflow stays Linux-only. A tag buil
 README whose relative links point at that tag, then puts the short links back in the checkout.
 A dry run has no tag, so `README.md` stays as stored. Twine 7.0.0 `check --strict` runs on the
 wheel and the sdist before they are uploaded, and `scripts/release-check.sh` does the same on
-its temporary build. A tag push uploads those files to PyPI, checks that Linux and macOS see the
-same sha256, and only then creates the GitHub release. A manual run uploads to TestPyPI only
-when its checkbox is on. A pull request uploads nowhere. The choices are recorded in
+its temporary build. A tag push uploads those files to PyPI. Linux and macOS then check that
+PyPI serves the same sha256, install that version from PyPI and smoke-test it, and only then is
+the GitHub release created. A manual run uploads to TestPyPI only when its checkbox is on. A
+pull request uploads nowhere. The choices are recorded in
 [0004](decisions/0004-publish-on-pypi.md). The choice to run macOS on every pull request is
 recorded in [0002](decisions/0002-macos-ci-on-every-pull-request.md).
+
+### Setting up PyPI publishing (once)
+
+Done for 1.0.1. Repeat these steps only if a site, the workflow file or an environment changes.
+
+1. **Accounts.** One account on [PyPI](https://pypi.org) and one on
+   [TestPyPI](https://test.pypi.org): separate sites, separate accounts, each with two-factor
+   authentication. The account name is shown publicly as the project's owner, so use the same
+   public identity as on GitHub.
+2. **Trusted publishers.** Before the first upload, add a *pending publisher* under Account
+   settings → Publishing (GitHub tab): project `sijl`, owner `ibnelhithem`, repository `sijl`,
+   workflow `release.yml`, environment `pypi`. Do the same on TestPyPI with environment
+   `testpypi`. A pending publisher does not reserve the name. The first upload creates the
+   project, and the publisher then appears under the project's Publishing settings. Renaming
+   `release.yml` or an environment stops publishing until the publisher is changed to match.
+3. **GitHub environments** (Settings → Environments). `pypi`: deployment rule "Selected
+   branches and tags", tag pattern `v*` only. `testpypi`: tag pattern `v*` and branch `main`.
+   Neither has a required reviewer or a secret ([0004](decisions/0004-publish-on-pypi.md),
+   decision 4). No token is stored anywhere: each upload gets a short-lived one for that job.
+4. **Rehearsal.** Actions → release → Run workflow on `main`, with `testpypi` ticked. It
+   uploads that build to TestPyPI only and installs nothing from there. TestPyPI never takes the
+   same file name twice, so each version can be rehearsed once.
+5. **A release.** Raise the version, move the changelog section, merge, then tag that commit
+   on `main` and push only the tag (see
+   [CONTRIBUTING.md](../../CONTRIBUTING.md#releasing-maintainers)). On PyPI, both files then
+   show an attestation that names `release.yml` and the `pypi` environment.
 
 ### When a release is wrong
 

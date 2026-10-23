@@ -23,6 +23,8 @@ SECRET_SCAN_REPORT = (
 USES = re.compile(r"\s*(?:- )?uses: (?P<action>\S+)(?P<rest>.*)")
 PINNED = re.compile(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}")
 VERSION_COMMENT = re.compile(r" # v\d+\.\d+\.\d+")
+# A token permission however it is written: `contents: write`, `contents:  write`, `"write"`.
+PERMISSION = re.compile(r"(?<![\w-])([\w-]+):\s+[\"']?(read|write)\b")
 
 
 def _code(text: str) -> list[str]:
@@ -74,9 +76,17 @@ def test_release_jobs_get_only_the_token_permissions_they_need() -> None:
     }
     for name, block in blocks.items():
         if name in {"publish-pypi", "publish-testpypi"}:
-            continue
-        expected = ["contents: write"] if name == "publish" else ["contents: read"]
-        assert re.findall(r"\b\w+: (?:read|write)\b", block) == expected, name
+            expected = [("id-token", "write")]  # the upload token and nothing else
+        elif name == "publish":
+            expected = [("contents", "write")]
+        else:
+            expected = [("contents", "read")]
+        assert PERMISSION.findall(block) == expected, name
+
+
+def test_the_permission_pattern_sees_every_spelling() -> None:
+    for line in ("contents: write", "contents:  write", 'contents: "write"', "contents: 'write'"):
+        assert PERMISSION.findall(f"    {line}") == [("contents", "write")], line
 
 
 def test_ci_only_reads() -> None:
@@ -104,7 +114,7 @@ def test_the_tag_and_changelog_are_checked_before_anything_is_built() -> None:
 def test_release_runs_never_restore_a_cache() -> None:
     # A cache written by another run (a pull request's, say) must not feed what gets published.
     setups = RELEASE.count("uses: astral-sh/setup-uv@")
-    assert setups == 2
+    assert setups == 3  # build, test, verify-pypi
     assert RELEASE.count("enable-cache: false") == setups
 
 
@@ -302,7 +312,7 @@ def test_the_bytes_on_pypi_are_checked_before_the_github_release() -> None:
     blocks = jobs(RELEASE)
     assert "verify-pypi" in blocks
     verify = blocks["verify-pypi"]
-    assert "needs: [publish-pypi]" in verify
+    assert "needs: [build, publish-pypi]" in verify
     assert "id-token: write" not in verify
     publish = blocks["publish"]
     assert "needs: [build, test, verify-pypi]" in publish
@@ -322,3 +332,22 @@ def test_the_testpypi_rehearsal_is_a_manual_choice() -> None:
     assert "actions/checkout@" not in job
     assert "inputs.testpypi" in job
     assert "inputs.testpypi" not in blocks["publish-pypi"]
+
+
+def test_pypi_is_checked_by_sha256_before_its_version_is_installed() -> None:
+    """The install from PyPI runs only after PyPI served the tested bytes, and the job that
+    installs holds no upload token and keeps no git credentials."""
+    verify = jobs(RELEASE)["verify-pypi"]
+    check = verify.index('release.py verify-pypi "$VERSION" dist')
+    install = verify.index('scripts/smoke-test.sh --pypi "$VERSION"')
+    assert verify.index("uses: actions/download-artifact@") < check < install
+    assert "persist-credentials: false" in verify
+    assert "id-token" not in verify
+    assert "os: [ubuntu-latest, macos-latest]" in verify
+
+
+def test_no_release_step_may_fail_quietly() -> None:
+    """`continue-on-error`, `always()` or `cancelled()` would let a failed check go on to the
+    upload or the GitHub release."""
+    for escape in ("continue-on-error", "always()", "cancelled()"):
+        assert escape not in RELEASE, escape

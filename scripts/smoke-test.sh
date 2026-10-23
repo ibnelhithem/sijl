@@ -2,19 +2,28 @@
 # Smoke-test built distributions the way a user installs Sijl: the wheel and the sdist
 # in DIST are each installed with `uv tool install` into a throwaway tool folder, then the
 # installed command must print VERSION and find the right commit in a tiny generated repository.
+# With --pypi, the one install is `sijl==VERSION` from pypi.org instead: what PyPI serves now.
 #
 #   scripts/smoke-test.sh DIST VERSION        e.g.  scripts/smoke-test.sh dist 1.0.0
+#   scripts/smoke-test.sh --pypi VERSION      e.g.  scripts/smoke-test.sh --pypi 1.0.0
 #
 # Used by scripts/release-check.sh and the release workflow (.github/workflows/release.yml).
 # Written for bash 3.2 and BSD tools as well (macOS); writes only inside one temporary folder.
 set -euo pipefail
 
 if [ $# -ne 2 ]; then
-    echo "usage: $0 DIST VERSION" >&2
+    echo "usage: $0 DIST VERSION | $0 --pypi VERSION" >&2
     exit 2
 fi
-dist=$1
 version=$2
+if [ "$1" = --pypi ]; then
+    kinds=pypi
+    # Only pypi.org: no index, file folder or config file named in the environment is used.
+    unset UV_INDEX UV_INDEX_URL UV_EXTRA_INDEX_URL UV_FIND_LINKS UV_CONFIG_FILE
+else
+    kinds="wheel sdist"
+    dist=$1
+fi
 python=${SIJL_SMOKE_PYTHON:-3.12} # the oldest Python Sijl supports
 email=smoke@example.invalid
 
@@ -23,12 +32,14 @@ fail() {
     exit 1
 }
 
-[ -d "$dist" ] || fail "no folder $dist"
-dist=$(cd "$dist" && pwd) # absolute: the installs below run from inside a temporary folder
-wheel="$dist/sijl-$version-py3-none-any.whl"
-sdist="$dist/sijl-$version.tar.gz"
-[ -f "$wheel" ] || fail "no wheel for $version in $dist (expected $(basename "$wheel"))"
-[ -f "$sdist" ] || fail "no sdist for $version in $dist (expected $(basename "$sdist"))"
+if [ "$kinds" != pypi ]; then
+    [ -d "$dist" ] || fail "no folder $dist"
+    dist=$(cd "$dist" && pwd) # absolute: the installs below run from inside a temporary folder
+    wheel="$dist/sijl-$version-py3-none-any.whl"
+    sdist="$dist/sijl-$version.tar.gz"
+    [ -f "$wheel" ] || fail "no wheel for $version in $dist (expected $(basename "$wheel"))"
+    [ -f "$sdist" ] || fail "no sdist for $version in $dist (expected $(basename "$sdist"))"
+fi
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/sijl-smoke.XXXXXX")
 trap 'rm -rf "$work"' EXIT
@@ -53,13 +64,21 @@ commit "2026-01-15 12:00:00 +0000" "feat: smoke-test commit"
 sha=$(sample_git rev-parse --short=7 HEAD)
 
 cd "$work" # nothing from the source tree can be imported by accident
-for kind in wheel sdist; do
-    if [ "$kind" = wheel ]; then artifact=$wheel; else artifact=$sdist; fi
+for kind in $kinds; do
+    case $kind in
+        wheel) set -- "$wheel" ;;
+        sdist) set -- "$sdist" ;;
+        # No cache and no uv config file, and pypi.org as the only index: nothing on this
+        # machine can stand in for the files PyPI serves.
+        pypi)
+            set -- --no-cache --no-config --default-index https://pypi.org/simple "sijl==$version"
+            ;;
+    esac
     bin="$work/bin-$kind"
 
     # Its own tool and bin folders: never the user's installed Sijl, never their PATH.
     UV_TOOL_DIR="$work/tools-$kind" UV_TOOL_BIN_DIR="$bin" \
-        uv tool install --quiet --python "$python" "$artifact" 2>"$work/install.log" ||
+        uv tool install --quiet --python "$python" "$@" 2>"$work/install.log" ||
         { cat "$work/install.log" >&2; fail "$kind: uv tool install failed"; }
 
     printed=$("$bin/sijl" --version)

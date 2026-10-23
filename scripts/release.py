@@ -6,6 +6,9 @@
     python3 scripts/release.py notes 1.2.3        print CHANGELOG.md's section for 1.2.3 (the
                                                   release notes); fail if it is missing or empty
     python3 scripts/release.py readme v1.2.3     print the README PyPI shows for that tag
+    python3 scripts/release.py verify-pypi 1.2.3 dist
+                                                  wait until PyPI serves the wheel and the sdist
+                                                  in dist, and fail unless their sha256 match
 
 pyproject.toml is the one place the version is written: the installed package reads it
 back from its own metadata (`sijl --version`), the release tag must repeat it, and
@@ -16,9 +19,16 @@ anything is installed. Exit codes: 0 fine, 1 a check failed, 2 usage error.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import http.client
+import json
 import re
 import sys
+import time
 import tomllib
+import urllib.error
+import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -33,6 +43,11 @@ LINK_REFERENCE = re.compile(r"\[(?P<name>[^\]]+)\]: \S+")
 # A Markdown link whose target is a path in this repository, not an absolute URL.
 RELATIVE_LINK = re.compile(r"\]\((?!https?://)([^)\s]+)\)")
 KINDS = ("Added", "Changed", "Deprecated", "Removed", "Fixed", "Security")
+
+# After an upload: PyPI's JSON page for the version, asked every 15 s for at most 5 minutes.
+PYPI_JSON = "https://pypi.org/pypi/sijl/{version}/json"
+POLL_SECONDS = 15
+DEADLINE_SECONDS = 5 * 60
 
 
 class ReleaseError(Exception):
@@ -60,6 +75,83 @@ def readme_for_pypi(text: str, tag: str) -> str:
         return f"]({prefix}{match.group(1)})"
 
     return RELATIVE_LINK.sub(rewrite, text)
+
+
+def _fetch_json(url: str) -> dict:
+    with urllib.request.urlopen(url, timeout=30) as response:
+        return json.load(response)
+
+
+def _say(line: str) -> None:
+    print(line, flush=True)  # in CI the output is a pipe: show each line when it happens
+
+
+def _waits(code: int) -> bool:
+    """An answer that can change by waiting: not visible yet (404), too many requests (429),
+    or PyPI briefly unwell (5xx)."""
+    return code in (404, 429) or 500 <= code <= 599
+
+
+def verify_pypi(
+    version: str,
+    dist: Path,
+    *,
+    fetch: Callable[[str], dict] = _fetch_json,
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+    log: Callable[[str], None] = _say,
+) -> None:
+    """Return once PyPI lists exactly the wheel and the sdist in `dist`, with the same sha256.
+
+    A missing version, a passing error and an unreachable PyPI are waited out until the
+    deadline. Different bytes, a file nobody tested, or any other answer stop at once. Only
+    file names, versions and HTTP codes are logged, never file contents.
+    """
+    if not VERSION.fullmatch(version):
+        raise ReleaseError(f"{version!r} is not a plain X.Y.Z release number")
+    expected = {f"sijl-{version}-py3-none-any.whl", f"sijl-{version}.tar.gz"}
+    found = {path.name for path in dist.iterdir()} if dist.is_dir() else set()
+    if found != expected:
+        raise ReleaseError(f"{dist} must hold exactly {' and '.join(sorted(expected))}")
+    local = {name: hashlib.sha256((dist / name).read_bytes()).hexdigest() for name in expected}
+    url = PYPI_JSON.format(version=version)
+    deadline = clock() + DEADLINE_SECONDS
+
+    while True:
+        try:
+            page = fetch(url)
+        except urllib.error.HTTPError as exc:  # before URLError: it is one
+            if not _waits(exc.code):
+                raise ReleaseError(f"{version}: PyPI answered {exc.code}") from None
+            waiting = "not on PyPI yet" if exc.code == 404 else f"PyPI answered {exc.code}"
+        # No connection or a timeout (OSError), an answer cut short (HTTPException), or a page
+        # that is not JSON (ValueError).
+        except (OSError, http.client.HTTPException, ValueError) as exc:
+            waiting = f"PyPI could not be reached ({type(exc).__name__})"
+        else:
+            try:
+                remote = {item["filename"]: item["digests"]["sha256"] for item in page["urls"]}
+            except (KeyError, TypeError):
+                raise ReleaseError(f"{version}: PyPI's answer has no file list") from None
+            untested = sorted(remote.keys() - expected)
+            if untested:  # an installer could choose it: never fixed by waiting
+                raise ReleaseError(
+                    f"{version}: PyPI lists files that were not tested: {', '.join(untested)}"
+                )
+            missing = sorted(expected - remote.keys())
+            if not missing:
+                differ = sorted(name for name in expected if remote[name] != local[name])
+                if differ:
+                    raise ReleaseError(f"{version}: sha256 does not match: {', '.join(differ)}")
+                log(f"{version}: PyPI serves both files with the tested sha256")
+                return
+            waiting = f"not on PyPI yet ({', '.join(missing)} not listed)"
+        if clock() >= deadline:
+            raise ReleaseError(
+                f"{version} is not on PyPI after {DEADLINE_SECONDS // 60} minutes: {waiting}"
+            )
+        log(f"{version}: {waiting}; asking again in {POLL_SECONDS} s")
+        sleep(POLL_SECONDS)
 
 
 def check_tag(tag: str, version: str) -> None:
@@ -192,6 +284,11 @@ def main(argv: list[str] | None = None) -> int:
     notes_parser.add_argument("--changelog", type=Path, default=ROOT / "CHANGELOG.md")
     readme_parser = commands.add_parser("readme", help="print the README PyPI shows for this tag")
     readme_parser.add_argument("tag")
+    pypi_parser = commands.add_parser(
+        "verify-pypi", help="wait until PyPI serves these files, and compare their sha256"
+    )
+    pypi_parser.add_argument("version")
+    pypi_parser.add_argument("dist", type=Path)
     args = parser.parse_args(argv)
 
     try:
@@ -202,6 +299,8 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "readme":
             text = (ROOT / "README.md").read_text(encoding="utf-8")
             sys.stdout.write(readme_for_pypi(text, args.tag))
+        elif args.command == "verify-pypi":
+            verify_pypi(args.version, args.dist)
         else:
             print(release_notes(args.changelog.read_text(encoding="utf-8"), args.version))
     except ReleaseError as exc:
